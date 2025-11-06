@@ -3,12 +3,11 @@
   "version": "1.0.0",
   "description": "A simple coffee delivery service API",
   "main": "app.js",
-  "scripts": {
-    "start": "node app.js"
-  },
+  
   "dependencies": {
     "axios": "^1.5.1",
-    "express": "^4.17.1"
+    "express": "^4.17.1",
+    "pg": "^8.11.0"
   },
   "keywords": [
     "coffee",
@@ -29,9 +28,10 @@
     "supertest": "^6.3.3"
   },
   "scripts": {
-      "start": "node app.js",
-      "test": "mocha --exit ./test/*.test.js",
-      "lint": "eslint . --ext .js",
-      "lint:fix": "eslint . --ext .js --fix"
+  "start": "node app.js",
+  "test": "mocha --exit ./test/*.test.js",
+  "lint": "eslint . --ext .js",
+  "lint:fix": "eslint . --ext .js --fix",
+  "migrate": "node migrate.js"
    }
 }

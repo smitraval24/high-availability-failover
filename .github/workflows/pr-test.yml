@@ -30,7 +30,7 @@ jobs:
         run: npm run lint
 
   test:
-    name: Run tests on self-hosted runner
+    name: Run unit tests
     runs-on: [self-hosted, linux, x64]
     needs: lint
     strategy:

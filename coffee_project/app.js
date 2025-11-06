@@ -1,47 +1,77 @@
 // app.js
 
 const express = require('express');
-const { coffees, orders } = require('./data');
+const { query, pool } = require('./db');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static('public')); 
-module.exports = app;
+app.use(express.static('public'));
 
 // Endpoint to fetch available coffees
-app.get('/coffees', (req, res) => {
-  res.json(coffees);
+app.get('/coffees', async (req, res) => {
+  try {
+    const result = await query('SELECT id, name, price FROM coffees ORDER BY id');
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DB error' });
+  }
 });
 
 // Endpoint to place an order
-app.post('/order', (req, res) => {
+app.post('/order', async (req, res) => {
   const { coffeeId, quantity } = req.body;
 
-  const coffee = coffees.find(c => c.id === coffeeId);
+  try {
+    const coffeeRes = await query('SELECT id, name, price FROM coffees WHERE id = $1', [coffeeId]);
+    const coffee = coffeeRes.rows[0];
 
-  if (!coffee) {
-    return res.status(400).json({ error: 'Invalid coffee ID' });
+    if (!coffee) return res.status(400).json({ error: 'Invalid coffee ID' });
+
+    const insertRes = await query(
+      'INSERT INTO orders (coffeeId, quantity) VALUES ($1, $2) RETURNING orderId, created_at',
+      [coffeeId, quantity]
+    );
+
+    const orderInfo = insertRes.rows[0];
+
+    const order = {
+      orderId: orderInfo.orderid || orderInfo.orderId,
+      coffeeName: coffee.name,
+      quantity,
+      total: Number(coffee.price) * quantity,
+      created_at: orderInfo.created_at
+    };
+
+    res.status(201).json(order);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DB error' });
   }
-
-  const order = {
-    orderId: orders.length + 1,
-    coffeeName: coffee.name,
-    quantity,
-    total: coffee.price * quantity
-  };
-
-  orders.push(order);
-
-  res.status(201).json(order);
 });
 
 // Endpoint to fetch all orders
-app.get('/orders', (req, res) => {
-  res.json(orders);
+app.get('/orders', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT o.orderId, c.name as coffeeName, o.quantity, (c.price * o.quantity) as total, o.created_at
+       FROM orders o
+       JOIN coffees c ON o.coffeeId = c.id
+       ORDER BY o.orderId`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DB error' });
+  }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server started on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server started on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
