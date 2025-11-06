@@ -8,7 +8,7 @@ on:
 jobs:
   lint:
     name: Run linting checks
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         node-version: [18.x]
@@ -31,7 +31,8 @@ jobs:
 
   test:
     name: Run unit tests
-    runs-on: [self-hosted, linux, x64]
+    # Use GitHub-hosted runner so the Postgres service can be started reliably
+    runs-on: ubuntu-latest
     needs: lint
     strategy:
       matrix:
