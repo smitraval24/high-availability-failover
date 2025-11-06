@@ -10,7 +10,7 @@ jobs:
   sync-dev:
     name: Back-merge main to dev
     if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'dev'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     
     steps:
       - name: Checkout repository
