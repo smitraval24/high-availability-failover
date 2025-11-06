@@ -24,11 +24,14 @@
   },
   "devDependencies": {
     "chai": "^4.3.10",
+    "eslint": "^8.52.0",
     "mocha": "^10.2.0",
     "supertest": "^6.3.3"
   },
   "scripts": {
       "start": "node app.js",
-      "test": "mocha --exit ./test/*.test.js"
+      "test": "mocha --exit ./test/*.test.js",
+      "lint": "eslint . --ext .js",
+      "lint:fix": "eslint . --ext .js --fix"
    }
 }

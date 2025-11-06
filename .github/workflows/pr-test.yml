@@ -6,9 +6,33 @@ on:
       - main
 
 jobs:
+  lint:
+    name: Run linting checks
+    runs-on: [self-hosted, linux, x64]
+    strategy:
+      matrix:
+        node-version: [18.x]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        working-directory: coffee_project
+        run: npm install
+
+      - name: Run ESLint
+        working-directory: coffee_project
+        run: npm run lint
+
   test:
     name: Run tests on self-hosted runner
     runs-on: [self-hosted, linux, x64]
+    needs: lint
     strategy:
       matrix:
         node-version: [18.x]
