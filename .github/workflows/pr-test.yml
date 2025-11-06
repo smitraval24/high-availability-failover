@@ -8,7 +8,7 @@ on:
 jobs:
   lint:
     name: Run linting checks
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     strategy:
       matrix:
         node-version: [18.x]
@@ -31,28 +31,13 @@ jobs:
 
   test:
     name: Run unit tests
-    # Use GitHub-hosted runner so the Postgres service can be started reliably
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: lint
     strategy:
       matrix:
         node-version: [18.x]
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: coffee_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/coffee_test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5433/coffee_test
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -66,17 +51,30 @@ jobs:
         working-directory: coffee_project
         run: npm install
 
-      - name: Wait for Postgres
+      - name: Start Postgres container
         run: |
+          # Stop and remove any existing test postgres container
+          docker stop coffee-test-postgres || true
+          docker rm coffee-test-postgres || true
+          
+          # Start fresh Postgres container for testing
+          docker run -d \
+            --name coffee-test-postgres \
+            -e POSTGRES_DB=coffee_test \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -p 5433:5432 \
+            postgres:15
+          
           echo "Waiting for Postgres to be ready..."
           for i in {1..30}; do
-            if pg_isready -h localhost -p 5432 -U postgres; then
-              echo "Postgres is ready" && break
+            if docker exec coffee-test-postgres pg_isready -U postgres > /dev/null 2>&1; then
+              echo "Postgres is ready!"
+              break
             fi
+            echo "Waiting... ($i/30)"
             sleep 2
           done
-        env:
-          PGPASSWORD: postgres
 
       - name: Run migrations
         working-directory: coffee_project
@@ -85,3 +83,9 @@ jobs:
       - name: Run tests
         working-directory: coffee_project
         run: npm test
+
+      - name: Cleanup Postgres container
+        if: always()
+        run: |
+          docker stop coffee-test-postgres || true
+          docker rm coffee-test-postgres || true
