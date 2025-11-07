@@ -37,7 +37,7 @@ jobs:
           VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
           PROJECT_DIR: devops-project
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -v $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
             set -e
             
             echo "=== Navigating to project directory ==="
@@ -50,19 +50,19 @@ jobs:
             cd coffee_project
             
             echo "=== Stopping old containers ==="
-            docker-compose down || true
+            sudo docker-compose down || true
             
             echo "=== Removing old containers and images ==="
-            docker-compose rm -f || true
+            sudo docker-compose rm -f || true
             
             echo "=== Building and starting new containers ==="
-            docker-compose up -d --build
+            sudo docker-compose up -d --build
             
             echo "=== Waiting for containers to be ready ==="
             sleep 15
             
             echo "=== Deployment complete! ==="
-            docker-compose ps
+            sudo docker-compose ps
           ENDSSH
 
       - name: Cleanup SSH key
