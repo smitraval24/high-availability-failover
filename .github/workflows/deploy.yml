@@ -15,16 +15,22 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.VCL2_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          echo "${{ secrets.VCL2_SSH_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+          
+      - name: Test VCL2 connectivity
+        env:
+          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+        run: |
+          echo "Testing network connectivity to VCL2..."
+          ping -c 3 $VCL2_HOST || echo "Ping failed"
+          nc -zv $VCL2_HOST 22 || echo "SSH port not reachable"
 
       - name: Deploy to VCL 2
         env:
-          SSH_KEY: ~/.ssh/deploy_key
           VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
           VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
-          PROJECT_DIR: ~/devops-project
+          PROJECT_DIR: devops-project
         run: |
-          ssh -i $SSH_KEY -o StrictHostKeyChecking=no $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
             set -e
             
             echo "=== Navigating to project directory ==="
@@ -49,9 +55,6 @@ jobs:
             sleep 15
             
             echo "=== Deployment complete! ==="
-            echo "Coffee app is now running at http://$VCL2_HOST:3000"
-            
-            echo "=== Container status ==="
             docker-compose ps
           ENDSSH
 
