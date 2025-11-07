@@ -16,6 +16,13 @@ jobs:
           echo "${{ secrets.VCL2_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           
+          # Debug: Check if key file is created and has content
+          echo "SSH key file created:"
+          ls -lh ~/.ssh/deploy_key
+          echo "Key fingerprint (first/last lines only):"
+          head -n 1 ~/.ssh/deploy_key
+          tail -n 1 ~/.ssh/deploy_key
+          
       - name: Test VCL2 connectivity
         env:
           VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
@@ -30,7 +37,7 @@ jobs:
           VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
           PROJECT_DIR: devops-project
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -v $VCL2_USER@$VCL2_HOST << 'ENDSSH'
             set -e
             
             echo "=== Navigating to project directory ==="
