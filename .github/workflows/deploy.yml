@@ -146,35 +146,16 @@ jobs:
             exit 0
           fi
 
-          # Execute backup commands on VCL3
-          echo "Connecting to VCL3 to backup code..."
+          # Pull latest code on VCL3
+          echo "Pulling latest code on VCL3..."
           set +e
           
-          ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL3_USER@$VCL3_HOST "
-            set -e
-            echo '=== Ensure backup directory exists ==='
-            mkdir -p \$HOME/devops-project
-            
-            if [ -d \"\$HOME/devops-project/.git\" ]; then
-              echo 'Repository already exists, pulling latest'
-              cd \$HOME/devops-project
-              git fetch --all
-              git reset --hard origin/main
-              echo 'Backup update complete'
-            else
-              echo 'Cloning repository as backup'
-              git clone $REPO_URL \$HOME/devops-project
-              echo 'Backup clone complete'
-            fi
-            
-            echo '=== Backup directory contents ==='
-            ls -la \$HOME/devops-project | head -n 10
-          "
+          ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL3_USER@$VCL3_HOST 'cd ~/devops-project && git pull origin main'
           
-          if [ \$? -eq 0 ]; then
+          if [ $? -eq 0 ]; then
             echo "✓ VCL3 backup completed successfully"
           else
-            echo "⚠️  VCL3 backup failed, but deployment to VCL2 was successful"
+            echo "⚠️  VCL3 backup failed (make sure ~/devops-project exists and is a git repo)"
           fi
           
           set -e
