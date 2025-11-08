@@ -146,33 +146,38 @@ jobs:
             exit 0
           fi
 
-          # Use unquoted heredoc so REPO_URL is expanded on the runner before sending to remote
-          if ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL3_USER@$VCL3_HOST <<ENDSSH
+          # Execute backup commands on VCL3
+          echo "Connecting to VCL3 to backup code..."
+          set +e
+          
+          ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL3_USER@$VCL3_HOST "
             set -e
-            echo "=== Ensure backup directory exists ==="
-            mkdir -p \$HOME/vcl3_backups/devops-project
-            cd \$HOME/vcl3_backups/devops-project
-
-            if [ -d "\$HOME/devops-project/.git" ]; then
-              echo "Repository already exists, pulling latest"
+            echo '=== Ensure backup directory exists ==='
+            mkdir -p \$HOME/devops-project
+            
+            if [ -d \"\$HOME/devops-project/.git\" ]; then
+              echo 'Repository already exists, pulling latest'
               cd \$HOME/devops-project
               git fetch --all
               git reset --hard origin/main
+              echo 'Backup update complete'
             else
-              echo "Cloning repository as backup"
-              git clone $REPO_URL \$HOME/devops-project || true
+              echo 'Cloning repository as backup'
+              git clone $REPO_URL \$HOME/devops-project
+              echo 'Backup clone complete'
             fi
-
-            echo "Backup update complete"
-            ls -la \$HOME/devops-project | head -n 20
-          ENDSSH
-          then
+            
+            echo '=== Backup directory contents ==='
+            ls -la \$HOME/devops-project | head -n 10
+          "
+          
+          if [ \$? -eq 0 ]; then
             echo "✓ VCL3 backup completed successfully"
           else
             echo "⚠️  VCL3 backup failed, but deployment to VCL2 was successful"
           fi
-
-          # cleanup temporary vcl3 key if created
+          
+          set -e
           rm -f ~/.ssh/vcl3_deploy_key || true
 
       - name: Cleanup SSH key
