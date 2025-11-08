@@ -11,9 +11,11 @@ jobs:
     
     steps:
       - name: Setup SSH
+        env:
+          VCL2_SSH_PRIVATE_KEY: ${{ secrets.VCL2_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.VCL2_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          echo "$VCL2_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           
           # Debug: Check if key file is created and has content
@@ -59,23 +61,116 @@ jobs:
             sudo docker-compose up -d --build
             
             echo "=== Waiting for containers to be ready ==="
-            sleep 15
+            # give services some time to start
+            sleep 10
+
+            echo "=== Waiting for DB healthcheck ==="
+            # wait up to ~60s for postgres to report healthy via docker healthcheck or pg_isready
+            for i in {1..12}; do
+              if sudo docker inspect --format='{{.State.Health.Status}}' coffee_db 2>/dev/null | grep -q healthy; then
+                echo "DB container healthy"
+                break
+              fi
+              if sudo docker exec coffee_db pg_isready -U postgres > /dev/null 2>&1; then
+                echo "Postgres is ready via pg_isready"
+                break
+              fi
+              echo "Waiting for DB... ($i/12)"
+              sleep 5
+            done
+
+            echo "=== Waiting for app to respond ==="
+            # wait for app port to be responsive on localhost inside the host
+            for i in {1..12}; do
+              if curl -sS -f http://localhost:3000/ >/dev/null 2>&1; then
+                echo "App responded on localhost:3000"
+                break
+              fi
+              echo "Waiting for app... ($i/12)"
+              sleep 5
+            done
             
             echo "=== Deployment complete! ==="
             sudo docker-compose ps
           ENDSSH
 
+      - name: Run health checks from Actions (VCL2)
+        id: vcl2_health
+        env:
+          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
+        run: |
+          echo "Running health checks by SSHing into VCL2 and testing endpoints"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+            set -e
+            echo "== App HTTP check =="
+            # retry HTTP check up to 12 times (60s)
+            for i in {1..12}; do
+              if curl -sS -f http://localhost:3000/ >/dev/null 2>&1; then
+                echo "HTTP OK"
+                break
+              fi
+              echo "HTTP not ready ($i/12)"
+              sleep 5
+            done
+
+            echo "== DB check =="
+            # check postgres via pg_isready
+            if sudo docker exec coffee_db pg_isready -U postgres > /dev/null 2>&1; then
+              echo "DB OK"
+            else
+              echo "DB not ready" >&2
+              exit 1
+            fi
+          ENDSSH
+
+      - name: Backup latest to VCL3 (if VCL2 healthy)
+        if: success()
+        env:
+          VCL3_USER: ${{ secrets.VCL3_SSH_USER }}
+          VCL3_HOST: ${{ secrets.VCL3_SSH_HOST }}
+          VCL3_SSH_PRIVATE_KEY: ${{ secrets.VCL3_SSH_PRIVATE_KEY }}
+          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
+          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+        run: |
+          echo "Pulling latest code on VCL3 for backup"
+          # Repo URL is expanded on the runner so remote can clone using HTTPS
+          REPO_URL="https://github.com/$GITHUB_REPOSITORY"
+          # Use separate SSH key for VCL3 if available, else reuse the same deploy_key secret
+          if [ -n "$VCL3_SSH_PRIVATE_KEY" ]; then
+            echo "Using VCL3 specific SSH key"
+            echo "$VCL3_SSH_PRIVATE_KEY" > ~/.ssh/vcl3_deploy_key
+            chmod 600 ~/.ssh/vcl3_deploy_key
+            SSH_KEY=~/.ssh/vcl3_deploy_key
+          else
+            SSH_KEY=~/.ssh/deploy_key
+          fi
+
+          # Use unquoted heredoc so REPO_URL is expanded on the runner before sending to remote
+          ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL3_USER@$VCL3_HOST <<ENDSSH
+            set -e
+            echo "=== Ensure backup directory exists ==="
+            mkdir -p $HOME/vcl3_backups/devops-project
+            cd $HOME/vcl3_backups/devops-project
+
+            if [ -d "$HOME/devops-project/.git" ]; then
+              echo "Repository already exists, pulling latest"
+              cd $HOME/devops-project
+              git fetch --all
+              git reset --hard origin/main
+            else
+              echo "Cloning repository as backup"
+              git clone $REPO_URL $HOME/devops-project || true
+            fi
+
+            echo "Backup update complete"
+            ls -la $HOME/devops-project | head -n 20
+          ENDSSH
+
+          # cleanup temporary vcl3 key if created
+          rm -f ~/.ssh/vcl3_deploy_key || true
+
       - name: Cleanup SSH key
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
-
-      - name: Verify deployment
-        env:
-          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
-        run: |
-          echo "Waiting 5 seconds for app to be ready..."
-          sleep 5
-          
-          echo "Testing deployment..."
-          curl -f http://$VCL2_HOST:3000/coffees || echo "Warning: Could not reach the app"
