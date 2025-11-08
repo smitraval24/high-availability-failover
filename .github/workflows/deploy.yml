@@ -127,7 +127,7 @@ jobs:
           fi
           
           # Repo URL is expanded on the runner so remote can clone using HTTPS
-          REPO_URL="https://github.com/$GITHUB_REPOSITORY"
+          REPO_URL="https://github.ncsu.edu/vatsaldp/devops-project"
           # Use separate SSH key for VCL3 if available, else reuse the same deploy_key secret
           if [ -n "$VCL3_SSH_PRIVATE_KEY" ]; then
             echo "Using VCL3 specific SSH key"
