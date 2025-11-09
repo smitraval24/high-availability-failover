@@ -45,8 +45,14 @@ jobs:
             echo "=== Navigating to project directory ==="
             cd $HOME/devops-project
             
+            echo "=== Stashing any local changes ==="
+            git stash || true
+            
             echo "=== Pulling latest code from main ==="
             git pull origin main
+            
+            echo "=== Applying stashed changes (if any) ==="
+            git stash pop || true
             
             echo "=== Navigating to coffee_project ==="
             cd coffee_project
