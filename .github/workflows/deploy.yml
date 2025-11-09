@@ -150,12 +150,23 @@ jobs:
           echo "Pulling latest code on VCL3..."
           set +e
           
-          ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL3_USER@$VCL3_HOST 'cd ~/devops-project && git pull origin main'
+          # Use -T to disable pseudo-tty allocation and add timeouts
+          timeout 30 ssh -T -i $SSH_KEY \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            -o ServerAliveInterval=5 \
+            -o ServerAliveCountMax=3 \
+            -o BatchMode=yes \
+            $VCL3_USER@$VCL3_HOST \
+            'cd ~/devops-project && GIT_TERMINAL_PROMPT=0 git pull origin main 2>&1'
           
-          if [ $? -eq 0 ]; then
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 0 ]; then
             echo "✓ VCL3 backup completed successfully"
+          elif [ $EXIT_CODE -eq 124 ]; then
+            echo "⚠️  VCL3 backup timed out after 30 seconds"
           else
-            echo "⚠️  VCL3 backup failed (make sure ~/devops-project exists and is a git repo)"
+            echo "⚠️  VCL3 backup failed (exit code: $EXIT_CODE)"
           fi
           
           set -e
