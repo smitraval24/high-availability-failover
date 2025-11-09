@@ -38,7 +38,7 @@ mkdir -p "$WORKDIR"
 log_info "Starting database replication from VCL2 to VCL3..."
 log_info "Dumping database from VCL2..."
 
-if ! docker-compose -f "$PROJECT_DIR/docker-compose.yml" exec -T db \
+if ! sudo docker-compose -f "$PROJECT_DIR/docker-compose.yml" exec -T db \
     pg_dump -U postgres coffee_dev | gzip > "$DUMP_FILE"; then
     log_error "Failed to dump database on VCL2"
     rm -f "$DUMP_FILE"
@@ -70,33 +70,44 @@ set -euo pipefail
 REMOTE_DUMP="$REMOTE_DUMP_FILE"
 PROJECT_DIR=~/devops-project/coffee_project
 
-echo "[VCL3] Ensuring database container is running..."
+echo "[VCL3] Starting database replication restore..."
 
-# Start db container if not running (without starting app)
+# Navigate to project directory
 cd \$PROJECT_DIR
-docker-compose up -d db
+
+# Ensure db container is running
+echo "[VCL3] Starting database container..."
+sudo docker-compose up -d db
 
 # Wait for postgres to be ready
 echo "[VCL3] Waiting for PostgreSQL to be ready..."
 RETRIES=30
-until docker-compose exec -T db pg_isready -U postgres >/dev/null 2>&1; do
+until sudo docker-compose exec -T db pg_isready -U postgres >/dev/null 2>&1; do
     RETRIES=\$((RETRIES - 1))
     if [ \$RETRIES -le 0 ]; then
         echo "[VCL3] ERROR: PostgreSQL did not start in time"
         exit 1
     fi
-    sleep 1
+    echo "[VCL3] Waiting... (\$RETRIES attempts remaining)"
+    sleep 2
 done
 
 echo "[VCL3] PostgreSQL is ready. Restoring database..."
 
+# Terminate existing connections to the database
+sudo docker-compose exec -T db psql -U postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'coffee_dev' AND pid <> pg_backend_pid();" || true
+
 # Drop existing database and recreate (clean restore)
-docker-compose exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS coffee_dev;" || true
-docker-compose exec -T db psql -U postgres -c "CREATE DATABASE coffee_dev;"
+sudo docker-compose exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS coffee_dev;" 2>/dev/null || true
+sudo docker-compose exec -T db psql -U postgres -c "CREATE DATABASE coffee_dev;"
 
 # Restore the dump
-if gunzip < "\$REMOTE_DUMP" | docker-compose exec -T db psql -U postgres coffee_dev; then
+if gunzip < "\$REMOTE_DUMP" | sudo docker-compose exec -T db psql -U postgres coffee_dev; then
     echo "[VCL3] Database restored successfully"
+    
+    # Verify restoration
+    TABLE_COUNT=\$(sudo docker-compose exec -T db psql -U postgres coffee_dev -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
+    echo "[VCL3] Database contains \$TABLE_COUNT tables"
 else
     echo "[VCL3] ERROR: Failed to restore database"
     exit 1
@@ -105,6 +116,9 @@ fi
 # Cleanup remote dump
 rm -f "\$REMOTE_DUMP"
 echo "[VCL3] Cleanup completed"
+
+# Note: Leaving DB container running for next replication (faster)
+# App container remains stopped (cold standby)
 EOF
 
 if [ $? -eq 0 ]; then
