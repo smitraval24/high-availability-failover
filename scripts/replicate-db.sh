@@ -64,10 +64,10 @@ log_info "Restoring database on VCL3..."
 
 REMOTE_DUMP_FILE="${REMOTE_TMP}/$(basename "$DUMP_FILE")"
 
-ssh -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_HOST}" bash -s <<EOF
-set -euo pipefail
+ssh -o StrictHostKeyChecking=no "${REMOTE_USER}@${REMOTE_HOST}" bash -s <<'EOF'
+set -e
 
-REMOTE_DUMP="$REMOTE_DUMP_FILE"
+REMOTE_DUMP="'"$REMOTE_DUMP_FILE"'"
 PROJECT_DIR=~/devops-project/coffee_project
 
 echo "[VCL3] Starting database replication restore..."
