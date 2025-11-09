@@ -55,4 +55,41 @@ describe('Coffee Delivery Service API', () => {
         });
     });
   });
+
+  describe('PUT /coffees/:id/price', () => {
+    it('should update the price of a coffee', (done) => {
+      request(app)
+        .put('/coffees/1/price')
+        .send({ price: 6.99 })
+        .end((err, res) => {
+          expect(res.statusCode).to.equal(200);
+          expect(res.body).to.have.property('message');
+          expect(res.body).to.have.property('coffee');
+          expect(res.body.coffee.price).to.equal('6.99');
+          done();
+        });
+    });
+
+    it('should return error for invalid price', (done) => {
+      request(app)
+        .put('/coffees/1/price')
+        .send({ price: -5 })
+        .end((err, res) => {
+          expect(res.statusCode).to.equal(400);
+          expect(res.body).to.have.property('error');
+          done();
+        });
+    });
+
+    it('should return error for non-existent coffee', (done) => {
+      request(app)
+        .put('/coffees/999/price')
+        .send({ price: 5.99 })
+        .end((err, res) => {
+          expect(res.statusCode).to.equal(404);
+          expect(res.body).to.have.property('error');
+          done();
+        });
+    });
+  });
 });

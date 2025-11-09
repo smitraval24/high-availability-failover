@@ -34,6 +34,11 @@ curl http://localhost:3000/coffees
 curl -X POST http://localhost:3000/order \
   -H "Content-Type: application/json" \
   -d '{"coffeeId": 1, "quantity": 2}'
+
+# Update coffee price (new feature!)
+curl -X PUT http://localhost:3000/coffees/1/price \
+  -H "Content-Type: application/json" \
+  -d '{"price": 6.99}'
 ```
 
 ## Common Commands

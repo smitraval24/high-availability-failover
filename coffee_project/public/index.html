@@ -1,14 +1,50 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coffee Order</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .coffee-item {
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 15px;
+            cursor: pointer;
+        }
+        .order-btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+        }
+        .price-btn {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 3px;
+        }
+        input[type="number"] {
+            width: 80px;
+            padding: 5px;
+            margin: 5px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Available Coffees</h1>
-    <ul id="coffeeList"></ul>
+    <h1>Coffee Shop</h1>
+    <h2>Available Coffees</h2>
+    <div id="coffeeList"></div>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="script.js"></script>
 </body>

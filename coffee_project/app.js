@@ -68,6 +68,35 @@ app.get('/orders', async (req, res) => {
   }
 });
 
+// Endpoint to update coffee price
+app.put('/coffees/:id/price', async (req, res) => {
+  const { id } = req.params;
+  const { price } = req.body;
+
+  if (!price || isNaN(price) || price <= 0) {
+    return res.status(400).json({ error: 'Invalid price. Must be a positive number.' });
+  }
+
+  try {
+    const result = await query(
+      'UPDATE coffees SET price = $1 WHERE id = $2 RETURNING id, name, price',
+      [price, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Coffee not found' });
+    }
+
+    res.json({ 
+      message: 'Price updated successfully', 
+      coffee: result.rows[0] 
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server started on http://localhost:${PORT}`);
