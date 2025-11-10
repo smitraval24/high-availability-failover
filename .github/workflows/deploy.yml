@@ -45,6 +45,9 @@ jobs:
             echo "=== Navigating to project directory ==="
             cd $HOME/devops-project
             
+            echo "=== Cleaning untracked files ==="
+            git clean -fd || true
+            
             echo "=== Stashing any local changes ==="
             git stash || true
             
