@@ -6,14 +6,23 @@ This repository contains the main DevOps project with a coffee delivery service.
 
 **VCL Machines:**
 - **VCL 1**: 152.7.178.184 (Routing and DNS)
-- **VCL 2**: 152.7.178.106 (Primary server with auto-deployment)
+- **VCL 2**: 152.7.178.106 (Primary server with auto-deployment + Cloudflare Tunnel)
 - **VCL 3**: 152.7.178.91 (Cold standby server with DB replication)
+
+**Public Access:**
+- **Cloudflare Tunnel**: Secure public access via `https://coffee-vcl2-*.trycloudflare.com`
+  - No domain required
+  - Free HTTPS/SSL
+  - DDoS protection
+  - Zero-trust security (no exposed IP)
 
 **High Availability Features:**
 - ✅ Automatic deployment to VCL2 on merge to `main` branch
+- ✅ **Automatic rollback** on deployment failure (restores previous version)
 - ✅ Database replication from VCL2 to VCL3 every 2 minutes
 - ✅ Auto-sync `dev` branch after PR merge to `main`
 - ✅ Linting and testing in CI/CD pipeline
+- ✅ Cloudflare Tunnel for secure public access (no domain needed)
 
 ## Quick Start with Docker
 
@@ -43,6 +52,44 @@ curl -X POST http://localhost:3000/order \
 ```bash
 docker-compose down
 ```
+
+## Public Access via Cloudflare Tunnel
+
+Access your coffee app from anywhere using Cloudflare Tunnel (no domain required):
+
+### One-Time Setup on VCL2
+
+```bash
+cd ~/devops-project
+chmod +x scripts/setup-cloudflare-tunnel.sh
+./scripts/setup-cloudflare-tunnel.sh
+```
+
+This will:
+- Install `cloudflared`
+- Create a persistent tunnel
+- Set up auto-start on boot
+- Give you a public URL like `https://coffee-vcl2-abc123.trycloudflare.com`
+
+### Get Your Public URL
+
+```bash
+# Quick way
+chmod +x scripts/get-tunnel-url.sh
+./scripts/get-tunnel-url.sh
+
+# Or check logs
+sudo journalctl -u cloudflared | grep trycloudflare.com
+```
+
+### Test Public Access
+
+```bash
+# Replace with your actual URL
+curl https://your-tunnel-url.trycloudflare.com/coffees
+```
+
+**Full Documentation**: See [CLOUDFLARE_TUNNEL_SETUP.md](CLOUDFLARE_TUNNEL_SETUP.md)
 
 ## High Availability Setup
 
@@ -172,10 +219,31 @@ The project uses GitHub Actions to automatically deploy to VCL 2 when code is me
 
 1. When a PR is merged to `main`, the deployment workflow triggers
 2. The workflow (running on the self-hosted runner on VCL 1) SSHs into VCL 2
-3. Pulls the latest code from the `main` branch
-4. Stops old Docker containers
-5. Rebuilds and starts new containers with the updated code
-6. The app becomes accessible at **http://152.7.178.106:3000**
+3. **Creates a backup** of the current running container
+4. Pulls the latest code from the `main` branch
+5. Stops old Docker containers
+6. Rebuilds and starts new containers with the updated code
+7. **Runs health checks** (HTTP + Database)
+8. **If health checks pass:** Cleans up backup and syncs to VCL3 ✓
+9. **If health checks fail:** Automatically rolls back to previous version ✗
+
+The app is accessible at **http://152.7.178.106:3000**
+
+### Automatic Rollback
+
+If a deployment fails health checks, the system **automatically restores** the previous working version:
+
+- ✅ Zero manual intervention required
+- ✅ Application stays online (no downtime)
+- ✅ Previous container is restored within seconds
+- ✅ Database remains unchanged (app-only rollback)
+
+**Health Check Criteria:**
+- HTTP endpoint responds: `GET /coffees` returns 200 OK
+- Database is ready: `pg_isready` succeeds
+- All checks must pass within 60 seconds
+
+**Full Documentation:** See [ROLLBACK_GUIDE.md](ROLLBACK_GUIDE.md) for detailed information
 
 ### Prerequisites for deployment
 
@@ -229,6 +297,18 @@ cd coffee_project
 docker-compose down
 docker-compose up -d --build
 ```
+
+### Manual rollback on VCL 2
+
+If you need to manually rollback to the previous version:
+
+```bash
+ssh vpatel29@152.7.178.106
+cd ~/devops-project
+./scripts/rollback-container.sh
+```
+
+**Note:** Manual rollback only works if a backup exists. Backups are automatically created before each deployment and cleaned up after successful deployments.
 
 ### Accessing the deployed app
 

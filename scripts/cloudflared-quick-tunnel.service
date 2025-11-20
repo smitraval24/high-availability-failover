@@ -1,0 +1,17 @@
+[Unit]
+Description=Cloudflare Quick Tunnel for Coffee App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vpatel29
+Group=vpatel29
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://localhost:3000
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
