@@ -35,15 +35,15 @@ CONTAINER_ID=$(docker ps --filter "name=coffee_app" --format "{{.ID}}")
 log_info "Found running container: $CONTAINER_ID"
 
 # Remove any existing backup image
-if docker images | grep -q "coffee_app.*backup"; then
+if docker images | grep -q "coffee_project-app.*backup"; then
     log_info "Removing old backup image..."
-    docker rmi coffee_app:backup 2>/dev/null || true
+    docker rmi coffee_project-app:backup 2>/dev/null || true
 fi
 
 # Create new backup by committing the running container
 log_info "Creating backup of current container..."
-if docker commit coffee_app coffee_app:backup; then
-    log_info "✓ Backup created successfully: coffee_app:backup"
+if docker commit coffee_app coffee_project-app:backup; then
+    log_info "✓ Backup created successfully: coffee_project-app:backup"
 else
     log_error "Failed to create backup"
     exit 1

@@ -22,9 +22,9 @@ BACKUP_DIR=/tmp/coffee_deployment
 log_info "Cleaning up deployment backup..."
 
 # Remove backup image
-if docker images | grep -q "coffee_app.*backup"; then
+if docker images | grep -q "coffee_project-app.*backup"; then
     log_info "Removing backup image..."
-    if docker rmi coffee_app:backup 2>/dev/null; then
+    if docker rmi coffee_project-app:backup 2>/dev/null; then
         log_info "✓ Backup image removed"
     else
         log_warn "Could not remove backup image (may not exist)"

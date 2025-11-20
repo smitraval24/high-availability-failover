@@ -28,7 +28,7 @@ BACKUP_DIR=/tmp/coffee_deployment
 log_error "=== DEPLOYMENT FAILED - INITIATING ROLLBACK ==="
 
 # Check if backup exists
-if ! docker images | grep -q "coffee_app.*backup"; then
+if ! docker images | grep -q "coffee_project-app.*backup"; then
     log_error "No backup image found! Cannot rollback."
     log_error "Manual intervention required."
     exit 1
@@ -44,13 +44,13 @@ sudo docker-compose down || true
 # Wait a moment for cleanup
 sleep 3
 
-# Tag the backup as latest (this makes docker-compose use it)
+# Tag the backup as latest  
 log_info "Restoring backup image as latest..."
-docker tag coffee_app:backup coffee_app:latest
+docker tag coffee_app:backup coffee_project-app:latest
 
-# Restart containers with the backed-up version
+# Restart containers WITHOUT rebuilding (use existing images)
 log_info "Starting containers with backed-up version..."
-if sudo docker-compose up -d; then
+if sudo docker-compose up -d --no-build; then
     log_info "Containers started with backup version"
 else
     log_error "Failed to start containers with backup"
