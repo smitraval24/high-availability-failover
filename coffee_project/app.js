@@ -7,6 +7,20 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// BREAKING CHANGE: Force health check failure for rollback testing
+// This middleware intentionally breaks the root endpoint to test automatic rollback
+app.use((req, res, next) => {
+  if (req.path === '/' || req.path === '/index.html') {
+    console.error('SIMULATED FAILURE: Returning 503 to trigger rollback');
+    return res.status(503).json({ 
+      error: 'Service temporarily unavailable', 
+      message: 'This is a simulated failure to test automatic rollback'
+    });
+  }
+  next();
+});
+
 app.use(express.static('public'));
 
 // Endpoint to fetch available coffees
