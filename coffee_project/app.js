@@ -7,20 +7,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-
-// BREAKING CHANGE: Test automatic rollback with --no-build fix
-// This middleware intentionally breaks the root endpoint to test rollback
-app.use((req, res, next) => {
-  if (req.path === '/' || req.path === '/index.html') {
-    console.error('SIMULATED FAILURE: Returning 503 to trigger rollback');
-    return res.status(503).json({ 
-      error: 'Service temporarily unavailable', 
-      message: 'Testing rollback with --no-build fix'
-    });
-  }
-  next();
-});
-
 app.use(express.static('public'));
 
 // Endpoint to fetch available coffees
