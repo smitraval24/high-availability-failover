@@ -20,9 +20,9 @@ Next Steps \- Vatsal
 
 Next Steps \- Smit
 
-*  While switching back from VCL 3 (cold standby) to VCL 2 (primary). We will ensure that the database is not completely wiped from vcl 2 and data from vcl 3 is dumped to vcl 2\. Instead we will make something that preserves the data on vcl 2 and while integrate the data from vcl 3  
-* Integrating routing of the traffic from vcl 2 to vcl 3 when vcl 2 fails and then we start the application on vcl 3 and get the health status ok and database connection ok.   
-* Also, traffic routing when vcl 2 is live and health check on that is ok.  
+*  While switching back from VCL 3 (cold standby) to VCL 2 (primary). We will ensure that the database is not completely wiped from vcl 2 and data from vcl 3 is dumped to vcl 2\. Instead we will make something that preserves the data on vcl 2 and while integrate the data from vcl 3 (8 hours) 
+* Integrating routing of the traffic from vcl 2 to vcl 3 when vcl 2 fails and then we start the application on vcl 3 and get the health status ok and database connection ok. (4 hours)   
+* Also, traffic routing when vcl 2 is live and health check on that is ok. (3 hours)  
   
 
 Retrospective
