@@ -33,18 +33,6 @@ jobs:
           ping -c 3 $VCL2_HOST || echo "Ping failed"
           nc -zv $VCL2_HOST 22 || echo "SSH port not reachable"
 
-      - name: Backup current container
-        env:
-          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
-          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
-        run: |
-          echo "Creating backup of current container before deployment..."
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
-            cd $HOME/devops-project
-            chmod +x scripts/backup-container.sh
-            ./scripts/backup-container.sh
-          ENDSSH
-
       - name: Deploy to VCL 2
         env:
           VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
@@ -68,6 +56,11 @@ jobs:
             
             echo "=== Applying stashed changes (if any) ==="
             git stash pop || true
+            
+            echo "=== Creating backup of current container ==="
+            cd $HOME/devops-project
+            chmod +x scripts/backup-container.sh
+            ./scripts/backup-container.sh || echo "Warning: Backup failed or no container to backup"
             
             echo "=== Navigating to coffee_project ==="
             cd coffee_project
