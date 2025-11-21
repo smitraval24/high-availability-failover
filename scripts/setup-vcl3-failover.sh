@@ -32,9 +32,13 @@ sudo chown $USER:$(id -gn $USER) /var/log/vcl-failover
 echo -e "${GREEN}✓ Log directory created${NC}"
 echo ""
 
-echo "Step 2: Making monitor script executable..."
+echo "Step 2: Fixing line endings and making monitor script executable..."
+# Fix Windows line endings (CRLF -> LF)
+sed -i 's/\r$//' ~/devops-project/scripts/monitor-vcl2-health.sh
+sed -i 's/\r$//' ~/devops-project/scripts/*.sh
 chmod +x ~/devops-project/scripts/monitor-vcl2-health.sh
-echo -e "${GREEN}✓ Monitor script is executable${NC}"
+chmod +x ~/devops-project/scripts/*.sh
+echo -e "${GREEN}✓ Line endings fixed and scripts are executable${NC}"
 echo ""
 
 echo "Step 3: Creating systemd service..."

@@ -1,0 +1,5 @@
+# Force Unix line endings for shell scripts
+*.sh text eol=lf
+
+# Force Unix line endings for other script files
+*.bash text eol=lf
