@@ -3,7 +3,7 @@
 # Monitors VCL2 health and triggers failover to VCL3 if VCL2 is down
 # Run this script on VCL3 as a systemd service
 
-set -euo pipefail
+set -uo pipefail
 
 # Configuration
 VCL2_HOST="152.7.178.106"
