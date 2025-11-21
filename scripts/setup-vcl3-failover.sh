@@ -28,7 +28,7 @@ fi
 
 echo "Step 1: Creating log directory..."
 sudo mkdir -p /var/log/vcl-failover
-sudo chown $USER:$(id -gn) /var/log/vcl-failover
+sudo chown $USER:$(id -gn $USER) /var/log/vcl-failover
 echo -e "${GREEN}✓ Log directory created${NC}"
 echo ""
 
