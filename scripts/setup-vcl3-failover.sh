@@ -49,7 +49,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$USER
-Group=$USER
 WorkingDirectory=$HOME/devops-project
 ExecStart=$HOME/devops-project/scripts/monitor-vcl2-health.sh
 Restart=always
