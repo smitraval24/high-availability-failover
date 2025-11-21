@@ -22,7 +22,7 @@ NC='\033[0m'
 
 # Initialize log directory
 mkdir -p "$(dirname "$LOG_FILE")"
-sudo chown $USER:$USER "$(dirname "$LOG_FILE")" 2>/dev/null || true
+sudo chown $USER:$(id -gn) "$(dirname "$LOG_FILE")" 2>/dev/null || true
 
 # Logging function
 log() {
