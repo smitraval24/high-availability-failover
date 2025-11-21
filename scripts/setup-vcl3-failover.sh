@@ -43,9 +43,8 @@ echo "Step 3: Creating systemd service..."
 sudo tee /etc/systemd/system/vcl-failover-monitor.service > /dev/null << EOF
 [Unit]
 Description=VCL2 Health Monitor and Failover Service
-After=network-online.target docker.service
+After=network-online.target
 Wants=network-online.target
-Requires=docker.service
 
 [Service]
 Type=simple
