@@ -2,6 +2,10 @@
 
 This repository contains the main DevOps project with a coffee delivery service.
 
+## Live Application
+
+**Public URL:** https://devopsproject.dpdns.org
+
 ## Infrastructure
 
 **VCL Machines:**
@@ -10,8 +14,8 @@ This repository contains the main DevOps project with a coffee delivery service.
 - **VCL 3**: 152.7.178.91 (Cold standby server with DB replication)
 
 **Public Access:**
-- **Cloudflare Tunnel**: Secure public access via `https://coffee-vcl2-*.trycloudflare.com`
-  - No domain required
+- **Domain**: https://devopsproject.dpdns.org
+- **Cloudflare Tunnel**: Secure public access with:
   - Free HTTPS/SSL
   - DDoS protection
   - Zero-trust security (no exposed IP)
@@ -20,9 +24,12 @@ This repository contains the main DevOps project with a coffee delivery service.
 - ✅ Automatic deployment to VCL2 on merge to `main` branch
 - ✅ **Automatic rollback** on deployment failure (restores previous version)
 - ✅ Database replication from VCL2 to VCL3 every 2 minutes
+- ✅ **Automatic failover** to VCL3 when VCL2 is down
+- ✅ **Automatic failback** with database sync when VCL2 recovers
+- ✅ **Data persistence** - deployments preserve existing database data
 - ✅ Auto-sync `dev` branch after PR merge to `main`
 - ✅ Linting and testing in CI/CD pipeline
-- ✅ Cloudflare Tunnel for secure public access (no domain needed)
+- ✅ Cloudflare Tunnel for secure public access
 
 ## Quick Start with Docker
 
@@ -120,9 +127,25 @@ tail -f /var/log/coffee-replication/replicate.log
 systemctl status coffee-replication.timer
 ```
 
-### Failover to VCL3
+### Automatic Failover and Failback
 
-If VCL2 fails, activate VCL3:
+**Automatic Failover (VCL2 → VCL3):**
+When VCL2 goes down, VCL3 automatically takes over:
+1. Health monitor on VCL3 detects VCL2 failure (3 consecutive failed checks)
+2. VCL3 app container automatically starts
+3. Traffic routes to VCL3 via Cloudflare tunnel
+4. VCL3 uses its replicated database (max 2 min behind)
+
+**Automatic Failback (VCL3 → VCL2):**
+When VCL2 recovers, the system automatically restores it as primary:
+1. Health monitor detects VCL2 is back online
+2. **VCL3 database syncs TO VCL2** (preserves data changes during failover)
+3. VCL2 app starts with synced data
+4. Health checks verify VCL2 is ready
+5. Traffic routes back to VCL2
+6. VCL3 app stops (returns to cold standby)
+
+**Manual Failover (if needed):**
 ```bash
 # On VCL3
 cd ~/devops-project/coffee_project
@@ -132,7 +155,21 @@ docker-compose up -d
 curl http://localhost:3000/coffees
 ```
 
-Then update DNS/routing on VCL1 to point traffic to VCL3.
+**Manual Failback (if needed):**
+```bash
+# On VCL3
+cd ~/devops-project/scripts
+./failback-to-vcl2.sh
+```
+
+**Setup Automatic Monitoring:**
+```bash
+# On VCL3 - setup health monitor
+cd ~/devops-project/scripts
+./setup-vcl3-failover.sh
+```
+
+**Full Documentation:** See [scripts/REPLICATION_USAGE.md](scripts/REPLICATION_USAGE.md)
 
 ## Database setup (PostgreSQL)
 
@@ -142,7 +179,17 @@ This project uses PostgreSQL for the `coffee_project` service. The app reads the
 postgresql://postgres:postgres@localhost:5432/coffee_dev
 ```
 
-Quick start (Docker)
+### Data Persistence
+
+The migration script is designed to **preserve existing data**:
+- Tables are created only if they don't exist
+- **Seed data is only inserted if the coffees table is empty**
+- Existing data is never overwritten during deployment
+- Database volumes persist across container restarts
+
+This ensures that pushing new code won't reset your database.
+
+### Quick start (Docker)
 
 1. Start a local Postgres container:
 
@@ -313,18 +360,54 @@ cd ~/devops-project
 ### Accessing the deployed app
 
 Once deployed, the coffee delivery service is accessible at:
-- **http://152.7.178.106:3000**
+- **Public URL**: https://devopsproject.dpdns.org
+- **Direct VCL2 Access**: http://152.7.178.106:3000
 
 Test endpoints:
 ```bash
 # Get available coffees
-curl http://152.7.178.106:3000/coffees
+curl https://devopsproject.dpdns.org/coffees
 
 # Place an order
-curl -X POST http://152.7.178.106:3000/order \
+curl -X POST https://devopsproject.dpdns.org/order \
   -H "Content-Type: application/json" \
   -d '{"coffeeId": 1, "quantity": 2}'
 
 # View all orders
-curl http://152.7.178.106:3000/orders
+curl https://devopsproject.dpdns.org/orders
+
+# Update coffee price
+curl -X PUT https://devopsproject.dpdns.org/coffees/1/price \
+  -H "Content-Type: application/json" \
+  -d '{"price": 6.99}'
 ```
+
+## Key Features Summary
+
+### 🚀 Continuous Deployment
+- Push to `main` → Automatic deployment to VCL2
+- Automatic code sync to VCL3 (cold standby)
+- All scripts made executable automatically
+
+### 🔄 High Availability
+- **Database Replication**: VCL2 → VCL3 every 2 minutes
+- **Automatic Failover**: VCL3 takes over when VCL2 is down
+- **Automatic Failback**: VCL2 resumes with synced data when recovered
+- **Zero Data Loss**: Database syncs in both directions
+
+### 🛡️ Reliability
+- **Automatic Rollback**: Failed deployments restore previous version
+- **Health Checks**: HTTP + Database validation
+- **Data Persistence**: Deployments never reset database
+- **Backup System**: Pre-deployment container backups
+
+### 🌐 Public Access
+- **Domain**: https://devopsproject.dpdns.org
+- **Cloudflare Tunnel**: Secure, zero-trust access
+- **Free SSL/HTTPS**: Automatic certificate management
+- **DDoS Protection**: Built-in security
+
+### 📊 Monitoring
+- Replication health checks
+- VCL2 health monitoring from VCL3
+- Detailed logging for all operations
