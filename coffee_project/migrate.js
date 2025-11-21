@@ -54,14 +54,24 @@ async function migrate() {
     );
   `);
 
-  for (const c of coffees) {
-    await pool.query(
-      'INSERT INTO coffees (id, name, price) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price',
-      [c.id, c.name, c.price]
-    );
+  // Only seed if the coffees table is empty (preserve existing data)
+  const existingData = await pool.query('SELECT COUNT(*) FROM coffees');
+  const rowCount = parseInt(existingData.rows[0].count, 10);
+
+  if (rowCount === 0) {
+    console.log('No existing data found. Seeding initial coffee data...');
+    for (const c of coffees) {
+      await pool.query(
+        'INSERT INTO coffees (id, name, price) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING',
+        [c.id, c.name, c.price]
+      );
+    }
+    console.log('Seed data inserted');
+  } else {
+    console.log(`Database already has ${rowCount} coffee(s). Skipping seed data to preserve existing data.`);
   }
 
-  console.log('Postgres migration + seed complete');
+  console.log('Postgres migration complete');
   await pool.end();
   process.exit(0);
 }

@@ -202,7 +202,22 @@ jobs:
 
           EXIT_CODE=$?
           if [ $EXIT_CODE -eq 0 ]; then
-            echo "✓ VCL3 backup completed successfully"
+            echo "✓ VCL3 code sync completed successfully"
+
+            # Make all scripts executable on VCL3
+            echo "Making scripts executable on VCL3..."
+            timeout 15 ssh -T -i $SSH_KEY \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 \
+              -o BatchMode=yes \
+              $VCL3_USER@$VCL3_HOST \
+              'chmod +x ~/devops-project/scripts/*.sh 2>&1'
+
+            if [ $? -eq 0 ]; then
+              echo "✓ VCL3 scripts are now executable"
+            else
+              echo "⚠️  Failed to make scripts executable on VCL3"
+            fi
           elif [ $EXIT_CODE -eq 124 ]; then
             echo "⚠️  VCL3 backup timed out after 30 seconds"
           else

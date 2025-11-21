@@ -124,19 +124,42 @@ perform_failover() {
     fi
 }
 
-# Recovery function - stops VCL3 when VCL2 comes back
+# Recovery function - syncs database and stops VCL3 when VCL2 comes back
 perform_recovery() {
     log "INFO" "========================================="
-    log "INFO" "VCL2 HAS RECOVERED - STOPPING VCL3"
+    log "INFO" "VCL2 HAS RECOVERED - INITIATING FAILBACK"
     log "INFO" "========================================="
 
-    cd "$HOME/devops-project/coffee_project" || return 1
+    SCRIPT_DIR="$HOME/devops-project/scripts"
 
-    if sudo docker-compose down; then
-        log "SUCCESS" "VCL3 application stopped - VCL2 is primary again"
-        return 0
+    # Step 1: Sync VCL3's database to VCL2 before stopping
+    log "INFO" "Syncing VCL3 database to VCL2 before failback..."
+    if [ -x "$SCRIPT_DIR/failback-to-vcl2.sh" ]; then
+        if "$SCRIPT_DIR/failback-to-vcl2.sh"; then
+            log "SUCCESS" "Failback completed - VCL2 has latest data from VCL3"
+            return 0
+        else
+            log "ERROR" "Failback script failed"
+            log "WARN" "VCL3 will continue serving traffic until failback succeeds"
+            return 1
+        fi
     else
-        log "ERROR" "Failed to stop VCL3 application"
+        # Fallback: Use reverse-replicate-db.sh directly if failback script not available
+        if [ -x "$SCRIPT_DIR/reverse-replicate-db.sh" ]; then
+            log "INFO" "Using reverse replication script..."
+            if "$SCRIPT_DIR/reverse-replicate-db.sh"; then
+                log "SUCCESS" "Database synced to VCL2"
+
+                # Now stop VCL3 app
+                cd "$HOME/devops-project/coffee_project" || return 1
+                if sudo docker-compose stop app; then
+                    log "SUCCESS" "VCL3 application stopped - VCL2 is primary again"
+                    return 0
+                fi
+            fi
+        fi
+
+        log "ERROR" "No failback/replication script available"
         return 1
     fi
 }

@@ -256,25 +256,68 @@ tail -f /var/log/coffee-replication/replicate.log
 - **Recovery Time**: ~30 seconds (time to start app container on VCL3)
 - **Data Loss Window**: Maximum 2 minutes of transactions if VCL2 fails
 
-## Failover Process (Manual)
+## Failover Process (Automatic)
 
-If VCL2 goes down:
+The VCL3 health monitor (`monitor-vcl2-health.sh`) automatically handles failover:
 
-1. **Start application on VCL3:**
-   ```bash
-   # On VCL3
-   cd ~/devops-project/coffee_project
-   sudo docker-compose up -d
-   ```
+1. **VCL2 goes down** - Monitor detects 3 consecutive health check failures
+2. **Automatic failover** - VCL3 app container starts, traffic routed via Cloudflare tunnel
+3. **VCL3 serves traffic** using its replicated database (may be up to 2 min behind)
 
-2. **Update VCL1 routing/DNS** to point to VCL3 (152.7.178.91)
+## Failback Process (When VCL2 Recovers)
 
-3. **Verify VCL3 is serving traffic:**
-   ```bash
-   curl http://152.7.178.91:3000/coffees
-   ```
+When VCL2 comes back online, the system automatically handles failback with data synchronization:
 
-4. **When VCL2 is back online**, reverse the process and update routing back to VCL2
+### Automatic Failback (via Monitor)
+The monitor script automatically triggers failback when VCL2 health checks pass:
+
+1. **VCL2 recovers** - Monitor detects VCL2 is healthy again
+2. **Database sync** - VCL3's current database is replicated TO VCL2 (reverse replication)
+3. **VCL2 app starts** - Application starts with synced data
+4. **Health verification** - VCL2 app health is verified
+5. **Traffic reroute** - Traffic routes back to VCL2
+6. **VCL3 stops** - VCL3 app stops, returns to cold standby mode
+
+### Manual Failback
+If you need to manually trigger failback:
+
+```bash
+# On VCL3
+cd ~/devops-project/scripts
+chmod +x failback-to-vcl2.sh reverse-replicate-db.sh
+./failback-to-vcl2.sh
+```
+
+This script will:
+1. Verify VCL2 connectivity and database health
+2. Sync VCL3's database to VCL2 (preserves any data changes made during failover)
+3. Start VCL2's application
+4. Verify VCL2 app health
+5. Reroute traffic to VCL2
+6. Stop VCL3's app (back to cold standby)
+
+### Manual Database Sync Only
+If you only need to sync the database without full failback:
+
+```bash
+# On VCL3
+cd ~/devops-project/scripts
+chmod +x reverse-replicate-db.sh
+./reverse-replicate-db.sh
+```
+
+## Data Persistence on Deployment
+
+The migration script (`migrate.js`) is designed to preserve existing data:
+
+- **Tables are created** if they don't exist (using `CREATE TABLE IF NOT EXISTS`)
+- **Seed data is only inserted** if the coffees table is empty
+- **Existing data is never overwritten** during deployment
+
+This ensures:
+- Pushing new code won't reset your database
+- VCL2 keeps its data after deployment
+- VCL3 keeps its replicated data after code sync
 
 ## Monitoring
 
