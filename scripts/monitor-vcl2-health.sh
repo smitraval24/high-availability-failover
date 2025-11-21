@@ -58,6 +58,25 @@ is_vcl3_running() {
     return 1
 }
 
+# Check if cloudflared is running
+ensure_cloudflared_running() {
+    if systemctl is-active --quiet cloudflared; then
+        log "INFO" "Cloudflared tunnel is running"
+        return 0
+    else
+        log "WARN" "Cloudflared not running, attempting to start..."
+        if sudo systemctl start cloudflared; then
+            sleep 3
+            if systemctl is-active --quiet cloudflared; then
+                log "SUCCESS" "Cloudflared tunnel started successfully"
+                return 0
+            fi
+        fi
+        log "ERROR" "Failed to start cloudflared tunnel"
+        return 1
+    fi
+}
+
 # Failover function - starts VCL3 application
 perform_failover() {
     log "CRITICAL" "========================================="
@@ -88,7 +107,12 @@ perform_failover() {
         # Verify VCL3 is responding
         if curl -sf --connect-timeout 5 http://localhost:3000/coffees > /dev/null 2>&1; then
             log "SUCCESS" "VCL3 health check passed - application is serving requests"
-            log "SUCCESS" "Failover complete! VCL3 is now serving traffic at http://152.7.178.91:3000"
+
+            # Ensure cloudflared is running for Cloudflare tunnel routing
+            ensure_cloudflared_running
+
+            log "SUCCESS" "Failover complete! VCL3 is now serving traffic via Cloudflare tunnel"
+            log "SUCCESS" "Public URL: https://devopsproject.dpdns.org"
             return 0
         else
             log "ERROR" "VCL3 started but health check failed"
