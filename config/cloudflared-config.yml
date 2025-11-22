@@ -1,0 +1,9 @@
+tunnel: f40f7dcb-3dc4-4be2-b1cf-28d678721bc1
+credentials-file: /home/vpatel29/.cloudflared/f40f7dcb-3dc4-4be2-b1cf-28d678721bc1.json
+
+ingress:
+  - hostname: devopsproject.dpdns.org
+    service: http://localhost:3000
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
