@@ -128,6 +128,19 @@ if (require.main === module) {
       console.error('CRITICAL: Failed to establish database connection');
       console.error('Server will start but may not function correctly');
       // Continue anyway - connection pool will retry on each request
+    } else {
+      // Warm up the connection pool by pre-establishing connections
+      console.log('Warming up connection pool...');
+      try {
+        const warmupPromises = [];
+        for (let i = 0; i < 2; i++) {
+          warmupPromises.push(pool.query('SELECT 1'));
+        }
+        await Promise.all(warmupPromises);
+        console.log('✓ Connection pool warmed up');
+      } catch (err) {
+        console.warn('Warning: Failed to warm up connection pool:', err.message);
+      }
     }
 
     const server = app.listen(PORT, () => {
