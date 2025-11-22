@@ -6,4 +6,9 @@ ingress:
     service: http://localhost:3000
     originRequest:
       noTLSVerify: true
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+      keepAliveTimeout: 90s
+      keepAliveConnections: 100
+      httpHostHeader: devopsproject.dpdns.org
   - service: http_status:404
