@@ -86,12 +86,18 @@ jobs:
               cp config/cloudflared-config.yml ~/.cloudflared/config.yml
               echo "✓ Cloudflared config updated"
 
-              # Restart cloudflared to apply new config
-              sudo systemctl restart cloudflared
-              echo "✓ Cloudflared restarted"
-
-              sleep 3
-              sudo systemctl status cloudflared --no-pager || true
+              # Fix systemd service to use config file instead of token
+              if [ -f "scripts/fix-cloudflared-service.sh" ]; then
+                chmod +x scripts/fix-cloudflared-service.sh
+                ./scripts/fix-cloudflared-service.sh
+                echo "✓ Cloudflared service fixed to use config file"
+              else
+                # Fallback: just restart
+                sudo systemctl restart cloudflared
+                echo "✓ Cloudflared restarted"
+                sleep 3
+                sudo systemctl status cloudflared --no-pager || true
+              fi
             else
               echo "⚠️  Cloudflared config not found in repository"
             fi
