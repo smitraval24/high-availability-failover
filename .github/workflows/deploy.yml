@@ -79,6 +79,22 @@ jobs:
             
             echo "=== Deployment complete! ==="
             sudo docker-compose ps
+
+            echo "=== Updating Cloudflare Tunnel configuration ==="
+            cd $HOME/devops-project
+            if [ -f "config/cloudflared-config.yml" ]; then
+              cp config/cloudflared-config.yml ~/.cloudflared/config.yml
+              echo "✓ Cloudflared config updated"
+
+              # Restart cloudflared to apply new config
+              sudo systemctl restart cloudflared
+              echo "✓ Cloudflared restarted"
+
+              sleep 3
+              sudo systemctl status cloudflared --no-pager || true
+            else
+              echo "⚠️  Cloudflared config not found in repository"
+            fi
           ENDSSH
 
       - name: Run health checks from Actions (VCL2)
