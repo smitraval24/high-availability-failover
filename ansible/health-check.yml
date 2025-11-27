@@ -20,15 +20,13 @@
 
   tasks:
     - name: Check if Docker is running
-      become: yes
-      systemd:
-        name: docker
-        state: started
-      check_mode: yes
+      shell: systemctl is-active docker
       register: docker_status
+      changed_when: false
+      ignore_errors: yes
 
     - name: Check Docker containers
-      shell: sudo docker ps --format "table {{.Names}}\t{{.Status}}"
+      shell: sudo docker ps
       register: docker_ps
       changed_when: false
 
@@ -61,18 +59,14 @@
   gather_facts: no
 
   tasks:
-    - name: Check if VCL2 monitor service is running
-      become: yes
-      systemd:
-        name: vcl2-monitor
-        state: started
-      check_mode: yes
+    - name: Check if VCL2 monitor service exists
+      shell: systemctl is-active vcl2-monitor 2>/dev/null || echo "inactive"
       register: monitor_status
+      changed_when: false
       ignore_errors: yes
 
     - name: Get monitor service status
-      become: yes
-      shell: systemctl status vcl2-monitor --no-pager
+      shell: systemctl status vcl2-monitor --no-pager 2>/dev/null || echo "Service not found"
       register: monitor_details
       changed_when: false
       ignore_errors: yes
@@ -80,13 +74,14 @@
     - name: Display VCL3 monitor status
       debug:
         msg:
-          - "VCL3 Monitor: {{ 'ACTIVE' if monitor_status is succeeded else 'INACTIVE' }}"
-          - "Service details available via: sudo systemctl status vcl2-monitor"
+          - "VCL3 Monitor: {{ monitor_status.stdout }}"
+          - "To check details run: sudo systemctl status vcl2-monitor"
 
     - name: Check if VCL3 app containers exist
-      shell: sudo docker ps -a --format "{{.Names}}" | grep -c coffee || echo "0"
+      shell: sudo docker ps -a 2>/dev/null | grep coffee | wc -l
       register: vcl3_containers
       changed_when: false
+      ignore_errors: yes
 
     - name: Display VCL3 standby status
       debug:
@@ -95,19 +90,17 @@
 - name: Check VCL1 Load Balancer
   hosts: vcl1
   gather_facts: no
+  ignore_unreachable: yes
 
   tasks:
     - name: Check if Nginx is running
-      become: yes
-      systemd:
-        name: nginx
-        state: started
-      check_mode: yes
+      shell: systemctl is-active nginx
       register: nginx_status
+      changed_when: false
+      ignore_errors: yes
 
     - name: Check Nginx configuration
-      become: yes
-      command: nginx -t
+      shell: sudo nginx -t 2>&1
       register: nginx_config
       changed_when: false
       ignore_errors: yes

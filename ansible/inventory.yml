@@ -6,17 +6,17 @@ all:
     vcl1:
       ansible_host: 152.7.178.184
       ansible_user: vpatel29
-      ansible_ssh_private_key_file: ~/.ssh/deploy_key
+      ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 
     vcl2:
       ansible_host: 152.7.178.106
       ansible_user: vpatel29
-      ansible_ssh_private_key_file: ~/.ssh/deploy_key
+      ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 
     vcl3:
       ansible_host: 152.7.178.91
       ansible_user: vpatel29
-      ansible_ssh_private_key_file: ~/.ssh/deploy_key
+      ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 
   children:
     load_balancer:
