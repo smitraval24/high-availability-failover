@@ -30,6 +30,7 @@ ansible-playbook -i inventory.yml site.yml
 ```
 
 This master playbook runs all the following in order:
+- **Configures firewall rules** (opens ports 22, 80, 3000, 5432)
 - Installs Docker on all servers
 - Sets up SSH keys
 - Configures load balancer on VCL1
@@ -126,7 +127,30 @@ ansible-playbook -i inventory.yml health-check.yml --limit vcl2
 ansible-playbook -i inventory.yml health-check.yml --limit vcl3
 ```
 
-### 7. `security-hardening.yml` - Security Hardening
+### 7. `setup-firewall.yml` - Configure Firewall Rules
+Setup firewall and open required ports on all servers:
+
+```bash
+ansible-playbook -i inventory.yml setup-firewall.yml
+```
+
+**What it does:**
+- Installs UFW (Uncomplicated Firewall)
+- Clears existing iptables rules
+- Opens required ports:
+  - **VCL1**: 22 (SSH), 80 (HTTP), 3000 (App)
+  - **VCL2**: 22 (SSH), 3000 (App), 5432 (PostgreSQL)
+  - **VCL3**: 22 (SSH), 3000 (App), 5432 (PostgreSQL)
+- Blocks all other incoming traffic
+- Allows all outgoing traffic
+
+**Check firewall status:**
+```bash
+ssh vcl2 'sudo ufw status verbose'
+ssh vcl3 'sudo ufw status verbose'
+```
+
+### 8. `security-hardening.yml` - Security Hardening
 Apply security best practices to all servers:
 
 ```bash
@@ -135,7 +159,7 @@ ansible-playbook -i inventory.yml security-hardening.yml
 
 **What it does:**
 - Updates all packages
-- Configures UFW firewall
+- Configures UFW firewall (includes firewall rules)
 - Installs and configures fail2ban
 - Disables root login
 - Disables password authentication
@@ -156,22 +180,25 @@ ansible-playbook -i inventory.yml site.yml
 
 ### Step-by-Step Setup
 ```bash
-# 1. Setup load balancer
+# 1. Configure firewall (IMPORTANT: Do this first!)
+ansible-playbook -i inventory.yml setup-firewall.yml
+
+# 2. Setup load balancer
 ansible-playbook -i inventory.yml setup-vcl1-loadbalancer.yml
 
-# 2. Deploy application
+# 3. Deploy application
 ansible-playbook -i inventory.yml deploy.yml
 
-# 3. Setup database replication
+# 4. Setup database replication
 ansible-playbook -i inventory.yml setup-replication.yml
 
-# 4. Setup failover monitor
+# 5. Setup failover monitor
 ansible-playbook -i inventory.yml setup-vcl3-monitor.yml
 
-# 5. Apply security hardening
+# 6. Apply security hardening
 ansible-playbook -i inventory.yml security-hardening.yml
 
-# 6. Verify everything
+# 7. Verify everything
 ansible-playbook -i inventory.yml health-check.yml
 ```
 
@@ -346,6 +373,7 @@ ssh vcl3 'sudo systemctl restart vcl2-monitor'
 - `setup-vcl1-loadbalancer.yml` - Load balancer setup
 - `setup-vcl3-monitor.yml` - Failover monitor setup
 - `setup-replication.yml` - Database replication setup
+- `setup-firewall.yml` - Firewall configuration and port management
 - `health-check.yml` - Health checks for all servers
 - `security-hardening.yml` - Security configuration
 

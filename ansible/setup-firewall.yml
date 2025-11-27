@@ -1,0 +1,161 @@
+---
+# Setup Firewall Rules
+# This playbook configures firewall to allow required ports on all servers
+
+- name: Configure Firewall Rules
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Install UFW (Uncomplicated Firewall)
+      apt:
+        name: ufw
+        state: present
+        update_cache: yes
+
+    - name: Reset UFW to default (clean slate)
+      ufw:
+        state: reset
+      ignore_errors: yes
+
+    - name: Set UFW default policy (deny incoming, allow outgoing)
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: Allow SSH (port 22) on all servers
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        comment: 'Allow SSH access'
+
+    - name: Allow HTTP (port 80) on VCL1 (load balancer)
+      ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+        comment: 'Allow HTTP for load balancer'
+      when: inventory_hostname == "vcl1"
+
+    - name: Allow port 3000 on VCL1 (load balancer also listens on 3000)
+      ufw:
+        rule: allow
+        port: '3000'
+        proto: tcp
+        comment: 'Allow app port for load balancer'
+      when: inventory_hostname == "vcl1"
+
+    - name: Allow port 3000 on VCL2 (primary app)
+      ufw:
+        rule: allow
+        port: '3000'
+        proto: tcp
+        comment: 'Allow app access'
+      when: inventory_hostname == "vcl2"
+
+    - name: Allow port 3000 on VCL3 (standby app)
+      ufw:
+        rule: allow
+        port: '3000'
+        proto: tcp
+        comment: 'Allow app access'
+      when: inventory_hostname == "vcl3"
+
+    - name: Allow PostgreSQL port 5432 on VCL2 (for replication)
+      ufw:
+        rule: allow
+        port: '5432'
+        proto: tcp
+        comment: 'Allow PostgreSQL for database replication'
+      when: inventory_hostname == "vcl2"
+
+    - name: Allow PostgreSQL port 5432 on VCL3 (for replication)
+      ufw:
+        rule: allow
+        port: '5432'
+        proto: tcp
+        comment: 'Allow PostgreSQL for database replication'
+      when: inventory_hostname == "vcl3"
+
+    - name: Clear any existing iptables rules that might block
+      shell: |
+        # Flush all existing rules
+        iptables -F
+        iptables -X
+        iptables -t nat -F
+        iptables -t nat -X
+        iptables -t mangle -F
+        iptables -t mangle -X
+      ignore_errors: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+    - name: Check UFW status
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: Display firewall configuration
+      debug:
+        msg: "{{ ufw_status.stdout_lines }}"
+
+- name: Verify Port Accessibility
+  hosts: all
+  gather_facts: no
+  become: yes
+
+  tasks:
+    - name: Check if port 3000 is listening (VCL2 & VCL3)
+      wait_for:
+        port: 3000
+        timeout: 5
+        state: started
+      register: port_check
+      ignore_errors: yes
+      when: inventory_hostname in ["vcl2", "vcl3"]
+
+    - name: Display port status
+      debug:
+        msg: "Port 3000 is {{ 'OPEN' if port_check is succeeded else 'CLOSED (app may not be running yet)' }}"
+      when: inventory_hostname in ["vcl2", "vcl3"]
+
+- name: Summary
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Display firewall setup summary
+      debug:
+        msg:
+          - "=========================================="
+          - "     FIREWALL CONFIGURATION COMPLETE"
+          - "=========================================="
+          - ""
+          - "VCL1 (Load Balancer) - Ports opened:"
+          - "  - 22 (SSH)"
+          - "  - 80 (HTTP)"
+          - "  - 3000 (App)"
+          - ""
+          - "VCL2 (Primary App) - Ports opened:"
+          - "  - 22 (SSH)"
+          - "  - 3000 (App)"
+          - "  - 5432 (PostgreSQL)"
+          - ""
+          - "VCL3 (Standby App) - Ports opened:"
+          - "  - 22 (SSH)"
+          - "  - 3000 (App)"
+          - "  - 5432 (PostgreSQL)"
+          - ""
+          - "All other incoming traffic is blocked by default"
+          - "Outgoing traffic is allowed"
+          - ""
+          - "Check firewall: sudo ufw status"
+          - "=========================================="
