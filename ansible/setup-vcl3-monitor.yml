@@ -9,23 +9,23 @@
   tasks:
     - name: Create scripts directory
       file:
-        path: /home/vpatel29/scripts
+        path: /home/{{ ansible_user }}/scripts
         state: directory
         mode: '0755'
 
     - name: Copy monitor script to VCL3
       copy:
-        dest: /home/vpatel29/scripts/monitor-vcl2-health.sh
+        dest: /home/{{ ansible_user }}/scripts/monitor-vcl2-health.sh
         mode: '0755'
         content: |
           #!/bin/bash
           # Monitor VCL2 health and activate VCL3 on failure
 
-          VCL2_HOST="152.7.178.106"
+          VCL2_HOST="{{ hostvars['vcl2']['ansible_host'] }}"
           VCL2_PORT="3000"
           CHECK_INTERVAL=10
           FAIL_THRESHOLD=3
-          PROJECT_DIR="/home/vpatel29/devops-project/coffee_project"
+          PROJECT_DIR="/home/{{ ansible_user }}/devops-project/coffee_project"
 
           fail_count=0
           vcl3_active=false
@@ -92,8 +92,8 @@
 
           [Service]
           Type=simple
-          User=vpatel29
-          ExecStart=/home/vpatel29/scripts/monitor-vcl2-health.sh
+          User={{ ansible_user }}
+          ExecStart=/home/{{ ansible_user }}/scripts/monitor-vcl2-health.sh
           Restart=always
           RestartSec=10
           StandardOutput=journal

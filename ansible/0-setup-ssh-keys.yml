@@ -32,15 +32,8 @@
   become: yes
 
   tasks:
-    - name: Check if UFW is active
-      shell: ufw status | grep -q "Status: active"
-      register: ufw_status
-      ignore_errors: yes
-      changed_when: false
-
     - name: Disable UFW firewall
       command: ufw --force disable
-      when: ufw_status.rc == 0
       ignore_errors: yes
 
     - name: Display firewall status

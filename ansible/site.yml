@@ -28,9 +28,9 @@
           - "9. Run health checks"
           - ""
           - "Servers:"
-          - "  - VCL1: 152.7.178.184 (Load Balancer)"
-          - "  - VCL2: 152.7.178.106 (Primary App)"
-          - "  - VCL3: 152.7.178.91 (Standby App)"
+          - "  - VCL1: {{ hostvars['vcl1']['ansible_host'] }} (Load Balancer)"
+          - "  - VCL2: {{ hostvars['vcl2']['ansible_host'] }} (Primary App)"
+          - "  - VCL3: {{ hostvars['vcl3']['ansible_host'] }} (Standby App)"
           - ""
           - "=========================================="
 
@@ -92,7 +92,7 @@
 
     - name: Add user to docker group
       user:
-        name: vpatel29
+        name: "{{ ansible_user }}"
         groups: docker
         append: yes
 
@@ -121,7 +121,7 @@
         executable: /bin/bash
 
     - name: Copy SSH key to VCL3
-      shell: ssh-copy-id -o StrictHostKeyChecking=no vpatel29@152.7.178.91 || true
+      shell: ssh-copy-id -o StrictHostKeyChecking=no {{ ansible_user }}@{{ hostvars['vcl3']['ansible_host'] }} || true
       args:
         executable: /bin/bash
       ignore_errors: yes
@@ -170,7 +170,7 @@
           - "Your infrastructure is now ready:"
           - ""
           - "VCL1 (Load Balancer):"
-          - "  - Access: http://152.7.178.184"
+          - "  - Access: http://{{ hostvars['vcl1']['ansible_host'] }}"
           - "  - Nginx load balancer active"
           - "  - Routes traffic to VCL2 (primary) and VCL3 (backup)"
           - ""
@@ -190,7 +190,7 @@
           - "  - Automatic security updates enabled"
           - ""
           - "Next steps:"
-          - "  - Test load balancer: curl http://152.7.178.184/coffees"
+          - "  - Test load balancer: curl http://{{ hostvars['vcl1']['ansible_host'] }}/coffees"
           - "  - Check monitor: ssh vcl3 'sudo systemctl status vcl2-monitor'"
           - "  - View replication logs: ssh vcl2 'tail -f /var/log/db-replication.log'"
           - ""

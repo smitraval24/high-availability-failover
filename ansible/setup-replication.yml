@@ -9,20 +9,20 @@
   tasks:
     - name: Create replication scripts directory
       file:
-        path: /home/vpatel29/scripts
+        path: /home/{{ ansible_user }}/scripts
         state: directory
         mode: '0755'
 
     - name: Copy database replication script to VCL2
       copy:
-        dest: /home/vpatel29/scripts/sync-db-to-vcl3.sh
+        dest: /home/{{ ansible_user }}/scripts/sync-db-to-vcl3.sh
         mode: '0755'
         content: |
           #!/bin/bash
           # Sync database from VCL2 to VCL3
 
-          VCL3_HOST="152.7.178.91"
-          VCL3_USER="vpatel29"
+          VCL3_HOST="{{ hostvars['vcl3']['ansible_host'] }}"
+          VCL3_USER="{{ ansible_user }}"
           BACKUP_DIR="/tmp/db-backup"
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           BACKUP_FILE="coffee_db_${TIMESTAMP}.sql"
@@ -77,7 +77,7 @@
         if [ ! -f ~/.ssh/id_rsa ]; then
           ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
         fi
-        ssh-copy-id -o StrictHostKeyChecking=no vpatel29@152.7.178.91 || true
+        ssh-copy-id -o StrictHostKeyChecking=no {{ ansible_user }}@{{ hostvars['vcl3']['ansible_host'] }} || true
       args:
         executable: /bin/bash
       ignore_errors: yes
@@ -86,11 +86,11 @@
       cron:
         name: "Database replication to VCL3"
         minute: "*/30"
-        job: "/home/vpatel29/scripts/sync-db-to-vcl3.sh >> /var/log/db-replication.log 2>&1"
+        job: "/home/{{ ansible_user }}/scripts/sync-db-to-vcl3.sh >> /var/log/db-replication.log 2>&1"
         state: present
 
     - name: Test replication script
-      shell: /home/vpatel29/scripts/sync-db-to-vcl3.sh
+      shell: /home/{{ ansible_user }}/scripts/sync-db-to-vcl3.sh
       args:
         executable: /bin/bash
       register: replication_test
@@ -101,5 +101,5 @@
         msg:
           - "Database replication setup complete!"
           - "Runs every 30 minutes via cron"
-          - "Manual run: /home/vpatel29/scripts/sync-db-to-vcl3.sh"
+          - "Manual run: /home/{{ ansible_user }}/scripts/sync-db-to-vcl3.sh"
           - "Logs: /var/log/db-replication.log"

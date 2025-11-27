@@ -1,26 +1,78 @@
 # Ansible Infrastructure Automation
 
-Complete infrastructure automation for the Coffee App using Ansible. This setup manages load balancing, failover, database replication, security, and deployments across three servers.
+Complete infrastructure automation using Ansible. This setup manages load balancing, failover, database replication, security, and deployments across three servers.
+
+## 🎯 Quick Start for NCSU Students
+
+**New to this project? Start here:** [STUDENT_GUIDE.md](STUDENT_GUIDE.md)
+
+The student guide includes:
+- Step-by-step setup instructions
+- How to use your own application instead of Coffee project
+- Troubleshooting tips
+- Testing procedures
 
 ## Infrastructure Overview
 
 ```
-VCL1 (152.7.178.184) - Load Balancer
+VCL1 - Load Balancer
   ├── Nginx load balancer
   └── Routes traffic to VCL2 (primary) and VCL3 (backup)
 
-VCL2 (152.7.178.106) - Primary Application
-  ├── Coffee app running
+VCL2 - Primary Application
+  ├── Application running in Docker
   ├── PostgreSQL database
   └── Database replication to VCL3 every 30 min
 
-VCL3 (152.7.178.91) - Standby Application
+VCL3 - Standby Application
   ├── Health monitor watching VCL2
   ├── Auto-failover if VCL2 fails
   └── Database synced from VCL2
 ```
 
+**Note:** IP addresses are configured in `inventory.yml` and `inventory-password.yml`
+
+## 🚀 Automated Setup (Recommended)
+
+The easiest way to setup everything:
+
+```bash
+bash SETUP.sh
+```
+
+This script automatically:
+1. Fixes connectivity issues (clears iptables/firewalls)
+2. Sets up SSH keys for passwordless authentication
+3. Deploys the complete infrastructure
+
+**Manual setup instructions below if you need more control.**
+
 ## Available Playbooks
+
+### 0. `0-fix-connectivity.yml` - Fix Connection Issues
+**Run this first if you have connectivity problems**
+
+```bash
+ansible-playbook -i inventory-password.yml 0-fix-connectivity.yml --ask-pass
+```
+
+Fixes common issues:
+- Clears iptables rules blocking SSH
+- Disables UFW temporarily
+- Ensures SSH service is running
+- Installs required packages
+
+### 0.1. `0-initial-setup.yml` - Setup SSH Keys
+**Run this after fixing connectivity**
+
+```bash
+ansible-playbook -i inventory-password.yml 0-initial-setup.yml --ask-pass
+```
+
+What it does:
+- Generates SSH keys on all servers
+- Distributes public keys for passwordless auth
+- Prepares servers for automated playbooks
 
 ### 1. `site.yml` - Complete Infrastructure Setup
 **Use this to setup everything from scratch to production**

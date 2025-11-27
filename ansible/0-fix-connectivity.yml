@@ -1,0 +1,48 @@
+---
+# Fix Connectivity Issues
+# This playbook fixes firewall/iptables issues that prevent Ansible from connecting
+# Usage: ansible-playbook -i inventory-password.yml 0-fix-connectivity.yml --ask-pass
+
+- name: Fix Firewall and Connectivity Issues on All VCLs
+  hosts: all
+  gather_facts: no
+  become: yes
+
+  tasks:
+    - name: Flush all iptables rules
+      shell: |
+        iptables -F
+        iptables -X
+        iptables -t nat -F
+        iptables -t nat -X
+        iptables -t mangle -F
+        iptables -t mangle -X
+        iptables -P INPUT ACCEPT
+        iptables -P FORWARD ACCEPT
+        iptables -P OUTPUT ACCEPT
+      ignore_errors: yes
+
+    - name: Disable UFW firewall temporarily
+      command: ufw --force disable
+      ignore_errors: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - openssh-server
+        state: present
+        update_cache: yes
+      ignore_errors: yes
+
+    - name: Ensure SSH service is running
+      systemd:
+        name: ssh
+        state: started
+        enabled: yes
+      ignore_errors: yes
+
+    - name: Display status
+      debug:
+        msg: "✓ Connectivity fixed on {{ inventory_hostname }} ({{ ansible_host }})"

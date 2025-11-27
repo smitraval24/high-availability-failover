@@ -9,14 +9,14 @@
   tasks:
     - name: Pull latest code from GitHub
       shell: |
-        cd /home/vpatel29/devops-project
+        cd /home/{{ ansible_user }}/devops-project
         git pull origin main
       args:
         executable: /bin/bash
 
     - name: Stop old Docker containers
       shell: |
-        cd /home/vpatel29/devops-project/coffee_project
+        cd /home/{{ ansible_user }}/devops-project/coffee_project
         sudo docker-compose down
       args:
         executable: /bin/bash
@@ -24,7 +24,7 @@
 
     - name: Build and start new containers
       shell: |
-        cd /home/vpatel29/devops-project/coffee_project
+        cd /home/{{ ansible_user }}/devops-project/coffee_project
         sudo docker-compose up -d --build
       args:
         executable: /bin/bash
@@ -32,13 +32,13 @@
     - name: Wait for application to start
       wait_for:
         port: 3000
-        host: 152.7.178.106
+        host: "{{ ansible_host }}"
         timeout: 30
         delay: 5
 
     - name: Run health check
       uri:
-        url: "http://152.7.178.106:3000/coffees"
+        url: "http://{{ ansible_host }}:3000/coffees"
         status_code: 200
       register: health_check
       retries: 5
@@ -47,4 +47,4 @@
 
     - name: Display deployment status
       debug:
-        msg: "✓ Deployment successful! App is running at http://152.7.178.106:3000"
+        msg: "✓ Deployment successful! App is running at http://{{ ansible_host }}:3000"

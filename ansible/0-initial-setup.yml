@@ -1,0 +1,150 @@
+---
+# Initial Setup - Run this FIRST on brand new VCL machines
+# This handles all the bootstrapping automatically using password authentication
+#
+# Usage:
+#   ansible-playbook -i inventory-password.yml 0-initial-setup.yml --ask-pass --ask-become-pass
+#
+# This will:
+# 1. Clear all firewall rules (iptables, UFW)
+# 2. Install required packages (sshpass, python3)
+# 3. Generate and distribute SSH keys
+# 4. Test passwordless authentication
+
+- name: Initial Setup - Localhost Preparation
+  hosts: localhost
+  gather_facts: no
+  connection: local
+
+  tasks:
+    - name: Display setup information
+      debug:
+        msg:
+          - "=========================================="
+          - "  INITIAL VCL SETUP"
+          - "=========================================="
+          - ""
+          - "This will setup SSH keys and clear firewalls"
+          - "on all VCL machines automatically."
+          - ""
+          - "You will be asked for your VCL password ONCE."
+          - ""
+
+    - name: Check if SSH key exists
+      stat:
+        path: ~/.ssh/id_ed25519
+      register: ssh_key
+
+    - name: Generate SSH key if not exists
+      shell: ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+      when: not ssh_key.stat.exists
+
+    - name: Display SSH key status
+      debug:
+        msg: "✓ SSH key ready at ~/.ssh/id_ed25519"
+
+- name: Clear Firewalls and Install Prerequisites
+  hosts: all
+  gather_facts: no
+  become: yes
+
+  tasks:
+    - name: Flush iptables rules
+      shell: |
+        iptables -F
+        iptables -X
+        iptables -t nat -F
+        iptables -t nat -X
+        iptables -t mangle -F
+        iptables -t mangle -X
+        iptables -P INPUT ACCEPT
+        iptables -P FORWARD ACCEPT
+        iptables -P OUTPUT ACCEPT
+      ignore_errors: yes
+
+    - name: Disable UFW firewall if exists
+      command: ufw --force disable
+      ignore_errors: yes
+
+    - name: Display firewall cleared message
+      debug:
+        msg: "✓ Firewall cleared on {{ inventory_hostname }}"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+      ignore_errors: yes
+
+    - name: Install Python3 and pip
+      apt:
+        name:
+          - python3
+          - python3-pip
+        state: present
+      when: ansible_os_family == "Debian"
+      ignore_errors: yes
+
+- name: Setup SSH Keys on All Servers
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Ensure .ssh directory exists
+      file:
+        path: ~/.ssh
+        state: directory
+        mode: '0700'
+
+    - name: Copy SSH public key to authorized_keys
+      authorized_key:
+        user: "{{ ansible_user }}"
+        state: present
+        key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
+
+    - name: Set proper permissions on authorized_keys
+      file:
+        path: ~/.ssh/authorized_keys
+        mode: '0600'
+
+    - name: Display SSH key installation success
+      debug:
+        msg: "✓ SSH key installed on {{ inventory_hostname }}"
+
+- name: Test Passwordless SSH
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Test SSH connection
+      ping:
+
+    - name: Display connection success
+      debug:
+        msg: "✓ Passwordless SSH working on {{ inventory_hostname }}"
+
+- name: Summary
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Display setup complete message
+      debug:
+        msg:
+          - "=========================================="
+          - "  INITIAL SETUP COMPLETE!"
+          - "=========================================="
+          - ""
+          - "✓ Firewalls cleared on all servers"
+          - "✓ iptables rules flushed"
+          - "✓ UFW disabled"
+          - "✓ SSH keys generated and distributed"
+          - "✓ Passwordless authentication enabled"
+          - ""
+          - "Next step - Deploy infrastructure:"
+          - ""
+          - "  ansible-playbook -i inventory.yml site.yml"
+          - ""
+          - "This will install everything and configure"
+          - "firewalls properly with security rules!"
+          - "=========================================="
