@@ -45,7 +45,7 @@
 
 - name: Clear Firewalls and Install Prerequisites
   hosts: all
-  gather_facts: no
+  gather_facts: yes
   become: yes
 
   tasks:
