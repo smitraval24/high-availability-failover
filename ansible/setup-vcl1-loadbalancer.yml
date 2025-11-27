@@ -1,0 +1,102 @@
+---
+# Configure Load Balancer on VCL1
+# This playbook sets up Nginx load balancer on VCL1
+
+- name: Configure Load Balancer on VCL1
+  hosts: vcl1
+  gather_facts: no
+
+  tasks:
+    - name: Install Nginx
+      become: yes
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Copy load balancer configuration
+      become: yes
+      copy:
+        dest: /etc/nginx/sites-available/coffee-lb
+        content: |
+          upstream coffee_backend {
+              server 152.7.178.106:3000 max_fails=3 fail_timeout=10s;  # VCL2 (Primary)
+              server 152.7.178.91:3000 backup max_fails=3 fail_timeout=10s;  # VCL3 (Standby)
+          }
+
+          server {
+              listen 80;
+              listen 3000;
+
+              location / {
+                  proxy_pass http://coffee_backend;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+
+                  # Timeouts
+                  proxy_connect_timeout 5s;
+                  proxy_send_timeout 10s;
+                  proxy_read_timeout 10s;
+
+                  # Retry failed requests on next upstream server
+                  proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+              }
+
+              location /health {
+                  access_log off;
+                  return 200 "healthy\n";
+                  add_header Content-Type text/plain;
+              }
+          }
+
+    - name: Remove default Nginx site if exists
+      become: yes
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      ignore_errors: yes
+
+    - name: Enable coffee load balancer site
+      become: yes
+      file:
+        src: /etc/nginx/sites-available/coffee-lb
+        dest: /etc/nginx/sites-enabled/coffee-lb
+        state: link
+
+    - name: Test Nginx configuration
+      become: yes
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Display Nginx test result
+      debug:
+        var: nginx_test.stderr_lines
+
+    - name: Restart Nginx
+      become: yes
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
+
+    - name: Wait for Nginx to be ready
+      wait_for:
+        port: 80
+        host: 152.7.178.184
+        timeout: 10
+
+    - name: Test load balancer health endpoint
+      uri:
+        url: "http://152.7.178.184/health"
+        status_code: 200
+      register: health_result
+
+    - name: Display load balancer status
+      debug:
+        msg:
+          - "Load balancer configured successfully!"
+          - "Access: http://152.7.178.184"
+          - "Health check: {{ health_result.content }}"

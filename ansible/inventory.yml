@@ -1,0 +1,29 @@
+# Ansible Inventory
+# Defines all servers in our infrastructure
+
+all:
+  hosts:
+    vcl1:
+      ansible_host: 152.7.178.184
+      ansible_user: vpatel29
+      ansible_ssh_private_key_file: ~/.ssh/deploy_key
+
+    vcl2:
+      ansible_host: 152.7.178.106
+      ansible_user: vpatel29
+      ansible_ssh_private_key_file: ~/.ssh/deploy_key
+
+    vcl3:
+      ansible_host: 152.7.178.91
+      ansible_user: vpatel29
+      ansible_ssh_private_key_file: ~/.ssh/deploy_key
+
+  children:
+    load_balancer:
+      hosts:
+        vcl1:
+
+    app_servers:
+      hosts:
+        vcl2:
+        vcl3:

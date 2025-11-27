@@ -1,0 +1,160 @@
+---
+# Health Check All Servers
+# This playbook verifies all infrastructure components are running correctly
+
+- name: Health Check All Servers
+  hosts: all
+  gather_facts: yes
+
+  tasks:
+    - name: Check server connectivity
+      ping:
+
+    - name: Display server info
+      debug:
+        msg: "{{ inventory_hostname }} ({{ ansible_host }}) is reachable"
+
+- name: Check VCL2 Application
+  hosts: vcl2
+  gather_facts: no
+
+  tasks:
+    - name: Check if Docker is running
+      become: yes
+      systemd:
+        name: docker
+        state: started
+      check_mode: yes
+      register: docker_status
+
+    - name: Check Docker containers
+      shell: sudo docker ps --format "table {{.Names}}\t{{.Status}}"
+      register: docker_ps
+      changed_when: false
+
+    - name: Display Docker containers
+      debug:
+        var: docker_ps.stdout_lines
+
+    - name: Check coffee app is responding
+      uri:
+        url: "http://152.7.178.106:3000/coffees"
+        status_code: 200
+        timeout: 5
+      register: app_health
+
+    - name: Check database connectivity
+      shell: sudo docker exec coffee_db pg_isready -U postgres
+      register: db_health
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Display VCL2 health status
+      debug:
+        msg:
+          - "VCL2 Status: HEALTHY"
+          - "App Response: {{ app_health.status }}"
+          - "Database: {{ 'UP' if db_health.rc == 0 else 'DOWN' }}"
+
+- name: Check VCL3 Monitor
+  hosts: vcl3
+  gather_facts: no
+
+  tasks:
+    - name: Check if VCL2 monitor service is running
+      become: yes
+      systemd:
+        name: vcl2-monitor
+        state: started
+      check_mode: yes
+      register: monitor_status
+      ignore_errors: yes
+
+    - name: Get monitor service status
+      become: yes
+      shell: systemctl status vcl2-monitor --no-pager
+      register: monitor_details
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Display VCL3 monitor status
+      debug:
+        msg:
+          - "VCL3 Monitor: {{ 'ACTIVE' if monitor_status is succeeded else 'INACTIVE' }}"
+          - "Service details available via: sudo systemctl status vcl2-monitor"
+
+    - name: Check if VCL3 app containers exist
+      shell: sudo docker ps -a --format "{{.Names}}" | grep -c coffee || echo "0"
+      register: vcl3_containers
+      changed_when: false
+
+    - name: Display VCL3 standby status
+      debug:
+        msg: "VCL3 has {{ vcl3_containers.stdout }} coffee containers (standby mode)"
+
+- name: Check VCL1 Load Balancer
+  hosts: vcl1
+  gather_facts: no
+
+  tasks:
+    - name: Check if Nginx is running
+      become: yes
+      systemd:
+        name: nginx
+        state: started
+      check_mode: yes
+      register: nginx_status
+
+    - name: Check Nginx configuration
+      become: yes
+      command: nginx -t
+      register: nginx_config
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Test load balancer endpoint
+      uri:
+        url: "http://152.7.178.184/health"
+        status_code: 200
+        timeout: 5
+      register: lb_health
+      ignore_errors: yes
+
+    - name: Test load balancer app proxy
+      uri:
+        url: "http://152.7.178.184/coffees"
+        status_code: 200
+        timeout: 5
+      register: lb_app
+      ignore_errors: yes
+
+    - name: Display VCL1 load balancer status
+      debug:
+        msg:
+          - "VCL1 Nginx: {{ 'RUNNING' if nginx_status is succeeded else 'DOWN' }}"
+          - "Config: {{ 'VALID' if nginx_config.rc == 0 else 'INVALID' }}"
+          - "Health Endpoint: {{ 'OK' if lb_health is succeeded else 'FAILED' }}"
+          - "App Proxy: {{ 'OK' if lb_app is succeeded else 'FAILED' }}"
+
+- name: Summary Report
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Display infrastructure health summary
+      debug:
+        msg:
+          - "=========================================="
+          - "     INFRASTRUCTURE HEALTH SUMMARY"
+          - "=========================================="
+          - ""
+          - "VCL1 (Load Balancer): Check output above"
+          - "VCL2 (Primary App):   Check output above"
+          - "VCL3 (Standby):       Check output above"
+          - ""
+          - "=========================================="
+          - "Run individual checks:"
+          - "  ansible-playbook -i inventory.yml health-check.yml --limit vcl1"
+          - "  ansible-playbook -i inventory.yml health-check.yml --limit vcl2"
+          - "  ansible-playbook -i inventory.yml health-check.yml --limit vcl3"
+          - "=========================================="

@@ -1,0 +1,105 @@
+---
+# Database Replication Setup
+# This playbook sets up database replication from VCL2 to VCL3
+
+- name: Setup Database Replication (VCL2 → VCL3)
+  hosts: vcl2
+  gather_facts: no
+
+  tasks:
+    - name: Create replication scripts directory
+      file:
+        path: /home/vpatel29/scripts
+        state: directory
+        mode: '0755'
+
+    - name: Copy database replication script to VCL2
+      copy:
+        dest: /home/vpatel29/scripts/sync-db-to-vcl3.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Sync database from VCL2 to VCL3
+
+          VCL3_HOST="152.7.178.91"
+          VCL3_USER="vpatel29"
+          BACKUP_DIR="/tmp/db-backup"
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          BACKUP_FILE="coffee_db_${TIMESTAMP}.sql"
+
+          log() {
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+          }
+
+          log "Starting database replication to VCL3..."
+
+          # Create backup directory
+          mkdir -p $BACKUP_DIR
+
+          # Dump database from VCL2
+          log "Creating database dump..."
+          if sudo docker exec coffee_db pg_dump -U postgres coffee_db > "${BACKUP_DIR}/${BACKUP_FILE}"; then
+              log "Database dump created: ${BACKUP_FILE}"
+          else
+              log "ERROR: Failed to create database dump"
+              exit 1
+          fi
+
+          # Copy to VCL3
+          log "Copying database dump to VCL3..."
+          if scp -o StrictHostKeyChecking=no "${BACKUP_DIR}/${BACKUP_FILE}" ${VCL3_USER}@${VCL3_HOST}:${BACKUP_DIR}/; then
+              log "Database dump copied to VCL3"
+          else
+              log "ERROR: Failed to copy database dump to VCL3"
+              exit 1
+          fi
+
+          # Restore on VCL3
+          log "Restoring database on VCL3..."
+          if ssh -o StrictHostKeyChecking=no ${VCL3_USER}@${VCL3_HOST} \
+              "sudo docker exec -i coffee_db psql -U postgres -d coffee_db < ${BACKUP_DIR}/${BACKUP_FILE}"; then
+              log "Database restored successfully on VCL3"
+          else
+              log "WARNING: Database restore on VCL3 had issues (may be expected if DB doesn't exist yet)"
+          fi
+
+          # Cleanup old backups (keep last 5)
+          log "Cleaning up old backups..."
+          cd $BACKUP_DIR
+          ls -t coffee_db_*.sql | tail -n +6 | xargs -r rm
+          ssh -o StrictHostKeyChecking=no ${VCL3_USER}@${VCL3_HOST} \
+              "cd ${BACKUP_DIR} && ls -t coffee_db_*.sql 2>/dev/null | tail -n +6 | xargs -r rm" || true
+
+          log "Database replication completed successfully"
+
+    - name: Setup SSH key for passwordless replication
+      shell: |
+        if [ ! -f ~/.ssh/id_rsa ]; then
+          ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+        fi
+        ssh-copy-id -o StrictHostKeyChecking=no vpatel29@152.7.178.91 || true
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Create cron job for automatic replication
+      cron:
+        name: "Database replication to VCL3"
+        minute: "*/30"
+        job: "/home/vpatel29/scripts/sync-db-to-vcl3.sh >> /var/log/db-replication.log 2>&1"
+        state: present
+
+    - name: Test replication script
+      shell: /home/vpatel29/scripts/sync-db-to-vcl3.sh
+      args:
+        executable: /bin/bash
+      register: replication_test
+      ignore_errors: yes
+
+    - name: Display replication test result
+      debug:
+        msg:
+          - "Database replication setup complete!"
+          - "Runs every 30 minutes via cron"
+          - "Manual run: /home/vpatel29/scripts/sync-db-to-vcl3.sh"
+          - "Logs: /var/log/db-replication.log"

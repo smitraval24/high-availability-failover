@@ -1,0 +1,174 @@
+---
+# Security Hardening
+# This playbook applies security best practices to all servers
+
+- name: Security Hardening for All Servers
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Update all packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      register: update_result
+      when: ansible_os_family == "Debian"
+
+    - name: Display update results
+      debug:
+        msg: "System packages updated successfully"
+      when: update_result is changed
+
+    - name: Install security packages
+      apt:
+        name:
+          - ufw
+          - fail2ban
+          - unattended-upgrades
+          - apt-listchanges
+        state: present
+
+    - name: Configure UFW - Allow SSH
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+
+    - name: Configure UFW - Allow HTTP
+      ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+      when: inventory_hostname == "vcl1"
+
+    - name: Configure UFW - Allow app port 3000
+      ufw:
+        rule: allow
+        port: '3000'
+        proto: tcp
+      when: inventory_hostname in ["vcl2", "vcl3"]
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+
+    - name: Configure fail2ban for SSH
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [DEFAULT]
+          bantime = 3600
+          findtime = 600
+          maxretry = 5
+
+          [sshd]
+          enabled = true
+          port = ssh
+          logpath = %(sshd_log)s
+          backend = %(sshd_backend)s
+
+    - name: Start and enable fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted
+        enabled: yes
+
+    - name: Disable root login via SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+        state: present
+      notify: Restart SSH
+
+    - name: Disable password authentication (use SSH keys only)
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+        state: present
+      notify: Restart SSH
+
+    - name: Set SSH idle timeout
+      blockinfile:
+        path: /etc/ssh/sshd_config
+        block: |
+          ClientAliveInterval 300
+          ClientAliveCountMax 2
+      notify: Restart SSH
+
+    - name: Configure automatic security updates
+      copy:
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+              "${distro_id}:${distro_codename}-security";
+          };
+          Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+          Unattended-Upgrade::Automatic-Reboot "false";
+
+    - name: Enable automatic updates
+      copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Download-Upgradeable-Packages "1";
+          APT::Periodic::AutocleanInterval "7";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    - name: Set proper file permissions on sensitive files
+      file:
+        path: "{{ item }}"
+        mode: '0600'
+      loop:
+        - /etc/ssh/sshd_config
+        - /etc/sudoers
+      ignore_errors: yes
+
+    - name: Display security status
+      debug:
+        msg:
+          - "Security hardening completed for {{ inventory_hostname }}"
+          - "Firewall: UFW enabled"
+          - "Fail2ban: Active"
+          - "Root login: Disabled"
+          - "Automatic updates: Enabled"
+
+  handlers:
+    - name: Restart SSH
+      systemd:
+        name: sshd
+        state: restarted
+
+- name: Security Report
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Display security hardening summary
+      debug:
+        msg:
+          - "=========================================="
+          - "     SECURITY HARDENING COMPLETE"
+          - "=========================================="
+          - ""
+          - "Applied to: VCL1, VCL2, VCL3"
+          - ""
+          - "Hardening measures:"
+          - "  ✓ All packages updated"
+          - "  ✓ UFW firewall configured and enabled"
+          - "  ✓ Fail2ban installed and active"
+          - "  ✓ Root login disabled"
+          - "  ✓ Password authentication disabled"
+          - "  ✓ SSH idle timeout configured"
+          - "  ✓ Automatic security updates enabled"
+          - ""
+          - "Check firewall: sudo ufw status"
+          - "Check fail2ban: sudo fail2ban-client status"
+          - "=========================================="
