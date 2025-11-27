@@ -1,0 +1,119 @@
+---
+# Setup VCL3 Failover Monitor
+# This playbook sets up the monitoring service on VCL3 that watches VCL2
+
+- name: Setup VCL3 Failover Monitor
+  hosts: vcl3
+  gather_facts: no
+
+  tasks:
+    - name: Create scripts directory
+      file:
+        path: /home/vpatel29/scripts
+        state: directory
+        mode: '0755'
+
+    - name: Copy monitor script to VCL3
+      copy:
+        dest: /home/vpatel29/scripts/monitor-vcl2-health.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Monitor VCL2 health and activate VCL3 on failure
+
+          VCL2_HOST="152.7.178.106"
+          VCL2_PORT="3000"
+          CHECK_INTERVAL=10
+          FAIL_THRESHOLD=3
+          PROJECT_DIR="/home/vpatel29/devops-project/coffee_project"
+
+          fail_count=0
+          vcl3_active=false
+
+          log() {
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+          }
+
+          check_vcl2() {
+              if curl -sf http://${VCL2_HOST}:${VCL2_PORT}/coffees > /dev/null 2>&1; then
+                  return 0
+              else
+                  return 1
+              fi
+          }
+
+          activate_vcl3() {
+              log "Activating VCL3..."
+              cd $PROJECT_DIR
+              sudo docker-compose up -d --build
+              vcl3_active=true
+              log "VCL3 is now active"
+          }
+
+          deactivate_vcl3() {
+              log "Deactivating VCL3..."
+              cd $PROJECT_DIR
+              sudo docker-compose down
+              vcl3_active=false
+              log "VCL3 is now standby"
+          }
+
+          log "Starting VCL2 health monitor..."
+
+          while true; do
+              if check_vcl2; then
+                  fail_count=0
+                  if [ "$vcl3_active" = true ]; then
+                      log "VCL2 is healthy again, deactivating VCL3"
+                      deactivate_vcl3
+                  fi
+              else
+                  fail_count=$((fail_count + 1))
+                  log "VCL2 health check failed ($fail_count/$FAIL_THRESHOLD)"
+
+                  if [ $fail_count -ge $FAIL_THRESHOLD ] && [ "$vcl3_active" = false ]; then
+                      log "VCL2 is down! Triggering failover to VCL3"
+                      activate_vcl3
+                  fi
+              fi
+
+              sleep $CHECK_INTERVAL
+          done
+
+    - name: Create systemd service for monitor
+      become: yes
+      copy:
+        dest: /etc/systemd/system/vcl2-monitor.service
+        content: |
+          [Unit]
+          Description=VCL2 Health Monitor
+          After=network.target docker.service
+          Requires=docker.service
+
+          [Service]
+          Type=simple
+          User=vpatel29
+          ExecStart=/home/vpatel29/scripts/monitor-vcl2-health.sh
+          Restart=always
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd daemon
+      become: yes
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start VCL2 monitor service
+      become: yes
+      systemd:
+        name: vcl2-monitor
+        enabled: yes
+        state: started
+
+    - name: Display monitor status
+      debug:
+        msg: "VCL2 monitor is now active on VCL3. Check status: sudo systemctl status vcl2-monitor"

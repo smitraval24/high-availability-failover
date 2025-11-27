@@ -1,0 +1,192 @@
+---
+# Complete Infrastructure Setup
+# Master playbook that orchestrates all infrastructure components
+# Run this to setup everything from scratch to production
+
+- name: Display Setup Information
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Display infrastructure setup plan
+      debug:
+        msg:
+          - "=========================================="
+          - "  COMPLETE INFRASTRUCTURE SETUP"
+          - "=========================================="
+          - ""
+          - "This will setup the complete infrastructure:"
+          - ""
+          - "1. Install Docker on all servers"
+          - "2. Setup SSH keys for inter-server communication"
+          - "3. Configure VCL1 as load balancer"
+          - "4. Deploy application to VCL2"
+          - "5. Setup database replication VCL2 → VCL3"
+          - "6. Setup failover monitoring on VCL3"
+          - "7. Apply security hardening to all servers"
+          - "8. Run health checks"
+          - ""
+          - "Servers:"
+          - "  - VCL1: 152.7.178.184 (Load Balancer)"
+          - "  - VCL2: 152.7.178.106 (Primary App)"
+          - "  - VCL3: 152.7.178.91 (Standby App)"
+          - ""
+          - "=========================================="
+
+    - name: Pause for confirmation
+      pause:
+        prompt: "Press Enter to continue with infrastructure setup (Ctrl+C to cancel)"
+
+# Step 1: Install Docker on all servers
+- name: Install Docker on All Servers
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install prerequisites
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Install docker-compose
+      get_url:
+        url: https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Add user to docker group
+      user:
+        name: vpatel29
+        groups: docker
+        append: yes
+
+    - name: Start and enable Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Display Docker installation status
+      debug:
+        msg: "Docker installed successfully on {{ inventory_hostname }}"
+
+# Step 2: Setup SSH keys for passwordless communication
+- name: Setup SSH Keys
+  hosts: vcl2
+  gather_facts: no
+
+  tasks:
+    - name: Generate SSH key pair if not exists
+      shell: |
+        if [ ! -f ~/.ssh/id_rsa ]; then
+          ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Copy SSH key to VCL3
+      shell: ssh-copy-id -o StrictHostKeyChecking=no vpatel29@152.7.178.91 || true
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Display SSH setup status
+      debug:
+        msg: "SSH keys configured for VCL2 → VCL3 communication"
+
+# Step 3: Configure Load Balancer on VCL1
+- name: Configure Load Balancer
+  import_playbook: setup-vcl1-loadbalancer.yml
+
+# Step 4: Deploy Application to VCL2
+- name: Deploy Application to VCL2
+  import_playbook: deploy.yml
+
+# Step 5: Setup Database Replication
+- name: Setup Database Replication
+  import_playbook: setup-replication.yml
+
+# Step 6: Setup VCL3 Failover Monitor
+- name: Setup VCL3 Failover Monitor
+  import_playbook: setup-vcl3-monitor.yml
+
+# Step 7: Apply Security Hardening
+- name: Apply Security Hardening
+  import_playbook: security-hardening.yml
+
+# Step 8: Health Check Everything
+- name: Health Check All Services
+  import_playbook: health-check.yml
+
+# Final Summary
+- name: Display Final Summary
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Display complete setup summary
+      debug:
+        msg:
+          - "=========================================="
+          - "  INFRASTRUCTURE SETUP COMPLETE!"
+          - "=========================================="
+          - ""
+          - "Your infrastructure is now ready:"
+          - ""
+          - "VCL1 (Load Balancer):"
+          - "  - Access: http://152.7.178.184"
+          - "  - Nginx load balancer active"
+          - "  - Routes traffic to VCL2 (primary) and VCL3 (backup)"
+          - ""
+          - "VCL2 (Primary Application):"
+          - "  - App running on port 3000"
+          - "  - Database active"
+          - "  - Database replication to VCL3 every 30 min"
+          - ""
+          - "VCL3 (Standby):"
+          - "  - Monitoring VCL2 health"
+          - "  - Auto-failover enabled"
+          - "  - Database synced from VCL2"
+          - ""
+          - "Security:"
+          - "  - Firewall enabled on all servers"
+          - "  - Fail2ban active"
+          - "  - Automatic security updates enabled"
+          - ""
+          - "Next steps:"
+          - "  - Test load balancer: curl http://152.7.178.184/coffees"
+          - "  - Check monitor: ssh vcl3 'sudo systemctl status vcl2-monitor'"
+          - "  - View replication logs: ssh vcl2 'tail -f /var/log/db-replication.log'"
+          - ""
+          - "=========================================="
