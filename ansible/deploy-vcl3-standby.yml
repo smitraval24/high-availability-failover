@@ -7,12 +7,22 @@
   gather_facts: no
 
   tasks:
-    - name: Pull latest code from GitHub
-      shell: |
-        cd /home/{{ ansible_user }}/devops-project
-        git pull origin main
-      args:
-        executable: /bin/bash
+    - name: Install rsync (required for synchronization)
+      become: yes
+      apt:
+        name: rsync
+        state: present
+
+    - name: Synchronize project code from VCL2 to VCL3
+      synchronize:
+        src: /home/{{ ansible_user }}/devops-project/
+        dest: /home/{{ ansible_user }}/devops-project/
+        delete: yes
+        recursive: yes
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=node_modules"
+          - "--exclude=coffee_project/node_modules"
 
     - name: Ensure Docker is running
       become: yes
