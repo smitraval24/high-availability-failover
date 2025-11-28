@@ -39,8 +39,20 @@
         prompt: "Press Enter to continue with infrastructure setup (Ctrl+C to cancel)"
 
 # Step 0: Configure Firewall Rules First
-- name: Configure Firewall Rules
-  import_playbook: setup-firewall.yml
+# - name: Configure Firewall Rules
+#   import_playbook: setup-firewall.yml
+
+# Step 0.5: Ensure iptables allows internal communication (Basic Fix)
+- name: Ensure Internal Communication
+  hosts: all
+  become: true
+  tasks:
+    - name: Allow all traffic from other VCL nodes
+      shell: |
+        iptables -A INPUT -s {{ hostvars['vcl1']['ansible_host'] }} -j ACCEPT
+        iptables -A INPUT -s {{ hostvars['vcl2']['ansible_host'] }} -j ACCEPT
+        iptables -A INPUT -s {{ hostvars['vcl3']['ansible_host'] }} -j ACCEPT
+      ignore_errors: true
 
 # Step 1: Install Docker on all servers
 - name: Install Docker on All Servers
