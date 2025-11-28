@@ -97,6 +97,9 @@
     - name: Enable UFW
       ufw:
         state: enabled
+      ignore_errors: yes
+      async: 10
+      poll: 0
 
     - name: Check UFW status
       command: ufw status verbose
