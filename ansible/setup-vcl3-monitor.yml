@@ -45,15 +45,34 @@
           activate_vcl3() {
               log "Activating VCL3..."
               cd $PROJECT_DIR
-              sudo docker-compose up -d --build
-              vcl3_active=true
-              log "VCL3 is now active"
+              
+              # Start containers
+              sudo docker compose up -d --build 2>&1 | while read line; do log "  $line"; done
+              
+              if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                  log "Containers started, waiting for app to be healthy..."
+                  
+                  # Wait up to 60 seconds for app to be ready
+                  for i in {1..12}; do
+                      if curl -sf http://localhost:3000/coffees > /dev/null 2>&1; then
+                          vcl3_active=true
+                          log "VCL3 is now active and serving traffic!"
+                          return 0
+                      fi
+                      log "Waiting for app to be ready... ($i/12)"
+                      sleep 5
+                  done
+                  
+                  log "ERROR: App started but not responding on port 3000"
+              else
+                  log "ERROR: Failed to start VCL3 containers"
+              fi
           }
 
           deactivate_vcl3() {
               log "Deactivating VCL3..."
               cd $PROJECT_DIR
-              sudo docker-compose down
+              sudo docker compose down
               vcl3_active=false
               log "VCL3 is now standby"
           }
