@@ -9,17 +9,23 @@
   become: yes
 
   tasks:
-    - name: Flush all iptables rules
+    - name: Set default iptables policies to ACCEPT (Preserve Docker chains)
       shell: |
-        iptables -F
-        iptables -X
-        iptables -t nat -F
-        iptables -t nat -X
-        iptables -t mangle -F
-        iptables -t mangle -X
         iptables -P INPUT ACCEPT
         iptables -P FORWARD ACCEPT
         iptables -P OUTPUT ACCEPT
+      ignore_errors: yes
+
+    - name: Check if Docker is installed
+      command: which docker
+      register: docker_check
+      ignore_errors: yes
+
+    - name: Restart Docker to repair iptables chains (if installed)
+      service:
+        name: docker
+        state: restarted
+      when: docker_check.rc == 0
       ignore_errors: yes
 
     - name: Disable UFW firewall temporarily

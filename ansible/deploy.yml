@@ -17,15 +17,39 @@
     - name: Stop old Docker containers
       shell: |
         cd /home/{{ ansible_user }}/devops-project/coffee_project
-        sudo docker-compose down
+        sudo docker compose down
       args:
         executable: /bin/bash
       ignore_errors: yes
 
+    - name: Remove broken Docker iptables chains
+      shell: |
+        iptables -t filter -F DOCKER-ISOLATION-STAGE-1
+        iptables -t filter -X DOCKER-ISOLATION-STAGE-1
+        iptables -t filter -F DOCKER-ISOLATION-STAGE-2
+        iptables -t filter -X DOCKER-ISOLATION-STAGE-2
+        iptables -t nat -F DOCKER
+        iptables -t nat -X DOCKER
+        iptables -t filter -F DOCKER
+        iptables -t filter -X DOCKER
+      ignore_errors: yes
+      become: yes
+
+    - name: Restart Docker service to fix iptables
+      become: yes
+      service:
+        name: docker
+        state: restarted
+      ignore_errors: yes
+
+    - name: Wait for Docker to start
+      pause:
+        seconds: 10
+
     - name: Build and start new containers
       shell: |
         cd /home/{{ ansible_user }}/devops-project/coffee_project
-        sudo docker-compose up -d --build
+        sudo docker compose up -d --build
       args:
         executable: /bin/bash
 
