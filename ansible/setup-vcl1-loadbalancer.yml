@@ -85,18 +85,19 @@
     - name: Wait for Nginx to be ready
       wait_for:
         port: 80
-        host: 152.7.178.184
+        host: "{{ ansible_host }}"
         timeout: 10
 
     - name: Test load balancer health endpoint
       uri:
-        url: "http://152.7.178.184/health"
+        url: "http://{{ ansible_host }}/health"
         status_code: 200
+        return_content: yes
       register: health_result
 
     - name: Display load balancer status
       debug:
         msg:
           - "Load balancer configured successfully!"
-          - "Access: http://152.7.178.184"
-          - "Health check: {{ health_result.content }}"
+          - "Access: http://{{ ansible_host }}"
+          - "Health check: {{ health_result.content | default('No content') }}"
