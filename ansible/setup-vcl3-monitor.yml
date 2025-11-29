@@ -20,12 +20,16 @@
         content: |
           #!/bin/bash
           # Monitor VCL2 health and activate VCL3 on failure
+          # Includes database restore from replicated backup and reverse sync on failback
 
           VCL2_HOST="{{ hostvars['vcl2']['ansible_host'] }}"
+          VCL2_USER="{{ ansible_user }}"
           VCL2_PORT="3000"
           CHECK_INTERVAL=10
           FAIL_THRESHOLD=3
           PROJECT_DIR="/home/{{ ansible_user }}/devops-project/coffee_project"
+          BACKUP_DIR="/tmp/db-backup"
+          DB_NAME="coffee_dev"
 
           fail_count=0
           vcl3_active=false
@@ -42,56 +46,162 @@
               fi
           }
 
-          activate_vcl3() {
-              log "Activating VCL3..."
-              cd $PROJECT_DIR
+          restore_database() {
+              log "Looking for database backup to restore..."
               
-              # Start containers
-              sudo docker compose up -d --build 2>&1 | while read line; do log "  $line"; done
+              # Find the latest backup file
+              LATEST_BACKUP=$(ls -t ${BACKUP_DIR}/coffee_db_*.sql 2>/dev/null | head -1)
               
-              if [ ${PIPESTATUS[0]} -eq 0 ]; then
-                  log "Containers started, waiting for app to be healthy..."
+              if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP" ]; then
+                  log "Found backup: $LATEST_BACKUP"
                   
-                  # Wait up to 60 seconds for app to be ready
-                  for i in {1..12}; do
-                      if curl -sf http://localhost:3000/coffees > /dev/null 2>&1; then
-                          vcl3_active=true
-                          log "VCL3 is now active and serving traffic!"
-                          return 0
+                  # Wait for database to be ready
+                  log "Waiting for database container to be ready..."
+                  for i in {1..30}; do
+                      if sudo docker exec coffee_db pg_isready -U postgres > /dev/null 2>&1; then
+                          log "Database is ready"
+                          break
                       fi
-                      log "Waiting for app to be ready... ($i/12)"
-                      sleep 5
+                      sleep 2
                   done
                   
-                  log "ERROR: App started but not responding on port 3000"
+                  # Drop and recreate database to ensure clean state
+                  log "Preparing database for restore..."
+                  sudo docker exec coffee_db psql -U postgres -c "DROP DATABASE IF EXISTS ${DB_NAME};" 2>/dev/null || true
+                  sudo docker exec coffee_db psql -U postgres -c "CREATE DATABASE ${DB_NAME};" 2>/dev/null || true
+                  
+                  # Restore the backup
+                  log "Restoring database from backup..."
+                  if cat "$LATEST_BACKUP" | sudo docker exec -i coffee_db psql -U postgres -d ${DB_NAME}; then
+                      log "Database restored successfully from backup!"
+                      return 0
+                  else
+                      log "WARNING: Database restore had issues, app will use migrations"
+                      return 1
+                  fi
               else
-                  log "ERROR: Failed to start VCL3 containers"
+                  log "WARNING: No database backup found in ${BACKUP_DIR}"
+                  log "VCL3 will start with fresh database (migrations/seeds)"
+                  return 1
+              fi
+          }
+
+          activate_vcl3() {
+              log "========================================="
+              log "FAILOVER: Activating VCL3..."
+              log "========================================="
+              cd $PROJECT_DIR
+              
+              # Start database container first
+              log "Starting database container..."
+              sudo docker compose up -d db
+              sleep 10
+              
+              # Try to restore from replicated backup
+              restore_database
+              
+              # Start the app container
+              log "Starting application container..."
+              sudo docker compose up -d app
+              
+              # Wait for app to be ready
+              log "Waiting for app to be healthy..."
+              for i in {1..12}; do
+                  if curl -sf http://localhost:3000/coffees > /dev/null 2>&1; then
+                      vcl3_active=true
+                      log "========================================="
+                      log "VCL3 is now ACTIVE and serving traffic!"
+                      log "========================================="
+                      return 0
+                  fi
+                  log "Waiting for app... ($i/12)"
+                  sleep 5
+              done
+              
+              log "ERROR: App started but not responding on port 3000"
+              return 1
+          }
+
+          sync_database_to_vcl2() {
+              log "Syncing VCL3 database back to VCL2..."
+              
+              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              SYNC_FILE="${BACKUP_DIR}/failback_${TIMESTAMP}.sql"
+              
+              # Dump current VCL3 database
+              log "Creating database dump from VCL3..."
+              if sudo docker exec coffee_db pg_dump -U postgres ${DB_NAME} > "$SYNC_FILE"; then
+                  log "Database dump created: $SYNC_FILE"
+              else
+                  log "ERROR: Failed to create database dump"
+                  return 1
+              fi
+              
+              # Copy to VCL2
+              log "Copying database to VCL2..."
+              if scp -o StrictHostKeyChecking=no "$SYNC_FILE" ${VCL2_USER}@${VCL2_HOST}:${BACKUP_DIR}/; then
+                  log "Database dump copied to VCL2"
+              else
+                  log "ERROR: Failed to copy database to VCL2"
+                  return 1
+              fi
+              
+              # Restore on VCL2
+              log "Restoring database on VCL2..."
+              if ssh -o StrictHostKeyChecking=no ${VCL2_USER}@${VCL2_HOST} \
+                  "sudo docker exec coffee_db psql -U postgres -c 'DROP DATABASE IF EXISTS ${DB_NAME};' && \
+                   sudo docker exec coffee_db psql -U postgres -c 'CREATE DATABASE ${DB_NAME};' && \
+                   cat ${BACKUP_DIR}/failback_${TIMESTAMP}.sql | sudo docker exec -i coffee_db psql -U postgres -d ${DB_NAME}"; then
+                  log "Database synced to VCL2 successfully!"
+                  return 0
+              else
+                  log "ERROR: Failed to restore database on VCL2"
+                  return 1
               fi
           }
 
           deactivate_vcl3() {
-              log "Deactivating VCL3..."
+              log "========================================="
+              log "FAILBACK: VCL2 is back, deactivating VCL3..."
+              log "========================================="
+              
+              # First sync database back to VCL2
+              sync_database_to_vcl2
+              
+              # Now stop VCL3 containers
               cd $PROJECT_DIR
               sudo docker compose down
               vcl3_active=false
-              log "VCL3 is now standby"
+              
+              log "========================================="
+              log "VCL3 deactivated. VCL2 is PRIMARY again."
+              log "========================================="
           }
 
+          # Ensure backup directory exists
+          mkdir -p $BACKUP_DIR
+
           log "Starting VCL2 health monitor..."
+          log "Monitoring: http://${VCL2_HOST}:${VCL2_PORT}/coffees"
+          log "Check interval: ${CHECK_INTERVAL}s, Failure threshold: ${FAIL_THRESHOLD}"
 
           while true; do
               if check_vcl2; then
+                  if [ $fail_count -gt 0 ]; then
+                      log "VCL2 health check passed (recovered from $fail_count failures)"
+                  fi
                   fail_count=0
+                  
                   if [ "$vcl3_active" = true ]; then
-                      log "VCL2 is healthy again, deactivating VCL3"
+                      log "VCL2 is healthy again, initiating failback..."
                       deactivate_vcl3
                   fi
               else
                   fail_count=$((fail_count + 1))
-                  log "VCL2 health check failed ($fail_count/$FAIL_THRESHOLD)"
+                  log "VCL2 health check FAILED ($fail_count/$FAIL_THRESHOLD)"
 
                   if [ $fail_count -ge $FAIL_THRESHOLD ] && [ "$vcl3_active" = false ]; then
-                      log "VCL2 is down! Triggering failover to VCL3"
+                      log "VCL2 failure threshold reached! Triggering failover..."
                       activate_vcl3
                   fi
               fi
