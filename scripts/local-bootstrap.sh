@@ -5,9 +5,9 @@
 
 # Configuration - UPDATE THESE IF NEEDED
 USER="sraval"
-VCL1_IP="152.7.176.221"
+VCL1_IP="152.7.176.240"
 VCL2_IP="152.7.177.180"
-VCL3_IP="152.7.178.104"
+VCL3_IP="152.7.176.221"
 
 echo "=========================================="
 echo "  VCL CONNECTIVITY BOOTSTRAP"

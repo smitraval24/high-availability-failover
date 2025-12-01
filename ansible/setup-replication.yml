@@ -20,12 +20,15 @@
         content: |
           #!/bin/bash
           # Sync database from VCL2 to VCL3
+          # This stores backups on VCL3 for failover use
+          # The monitor script will restore when failover is triggered
 
           VCL3_HOST="{{ hostvars['vcl3']['ansible_host'] }}"
           VCL3_USER="{{ ansible_user }}"
           BACKUP_DIR="/tmp/db-backup"
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           BACKUP_FILE="coffee_db_${TIMESTAMP}.sql"
+          DB_NAME="coffee_dev"
 
           log() {
               echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
@@ -33,44 +36,45 @@
 
           log "Starting database replication to VCL3..."
 
-          # Create backup directory
+          # Create backup directory locally
           mkdir -p $BACKUP_DIR
 
           # Dump database from VCL2
           log "Creating database dump..."
-          if sudo docker exec coffee_db pg_dump -U postgres coffee_dev > "${BACKUP_DIR}/${BACKUP_FILE}"; then
+          if sudo docker exec coffee_db pg_dump -U postgres ${DB_NAME} > "${BACKUP_DIR}/${BACKUP_FILE}"; then
               log "Database dump created: ${BACKUP_FILE}"
           else
               log "ERROR: Failed to create database dump"
               exit 1
           fi
 
+          # Ensure backup directory exists on VCL3
+          log "Ensuring backup directory exists on VCL3..."
+          ssh -o StrictHostKeyChecking=no ${VCL3_USER}@${VCL3_HOST} "mkdir -p ${BACKUP_DIR}"
+
           # Copy to VCL3
           log "Copying database dump to VCL3..."
           if scp -o StrictHostKeyChecking=no "${BACKUP_DIR}/${BACKUP_FILE}" ${VCL3_USER}@${VCL3_HOST}:${BACKUP_DIR}/; then
-              log "Database dump copied to VCL3"
+              log "Database dump copied to VCL3: ${BACKUP_DIR}/${BACKUP_FILE}"
           else
               log "ERROR: Failed to copy database dump to VCL3"
               exit 1
           fi
 
-          # Restore on VCL3
-          log "Restoring database on VCL3..."
-          if ssh -o StrictHostKeyChecking=no ${VCL3_USER}@${VCL3_HOST} \
-              "sudo docker exec -i coffee_db psql -U postgres -d coffee_db < ${BACKUP_DIR}/${BACKUP_FILE}"; then
-              log "Database restored successfully on VCL3"
-          else
-              log "WARNING: Database restore on VCL3 had issues (may be expected if DB doesn't exist yet)"
-          fi
+          # Note: We don't restore on VCL3 here because:
+          # 1. VCL3 is in standby mode (no running containers)
+          # 2. The monitor script will restore from backup during failover
+          log "Backup stored on VCL3 for failover use"
 
-          # Cleanup old backups (keep last 5)
+          # Cleanup old backups (keep last 5 on both servers)
           log "Cleaning up old backups..."
           cd $BACKUP_DIR
-          ls -t coffee_db_*.sql | tail -n +6 | xargs -r rm
+          ls -t coffee_db_*.sql 2>/dev/null | tail -n +6 | xargs -r rm
           ssh -o StrictHostKeyChecking=no ${VCL3_USER}@${VCL3_HOST} \
               "cd ${BACKUP_DIR} && ls -t coffee_db_*.sql 2>/dev/null | tail -n +6 | xargs -r rm" || true
 
           log "Database replication completed successfully"
+          log "Backup available on VCL3: ${BACKUP_DIR}/${BACKUP_FILE}"
 
     - name: Setup SSH key for passwordless replication
       shell: |
