@@ -1,3 +1,16 @@
+# =============================================================================
+# Deploy Workflow
+# =============================================================================
+# Triggered: On push to main branch (after PR merge)
+# Purpose: Deploy the coffee app to production server (VCL2)
+# Runner: Self-hosted runner on VCL1
+# Features:
+#   - Creates backup before deployment for rollback capability
+#   - SSH deployment to VCL2 (152.7.178.106)
+#   - Docker Compose deployment with health checks
+#   - Automatic rollback on deployment failure
+# =============================================================================
+
 name: Deploy to VCL 2
 on:
   push:

@@ -1,228 +1,192 @@
-# DevOps Project - Coffee Delivery Service
+# CSC 519 - DevOps Project
 
-A fully automated DevOps pipeline with CI/CD, high availability, and disaster recovery.
+This is our Coffee Project for the DevOps course. We built a full CI/CD pipeline with high availability and automatic failover between servers.
+
+## Our Setup
+
+We're using 3 VCL machines:
+
+- **VCL1** (152.7.178.184) - runs nginx as a load balancer, also hosts our GitHub Actions runner
+- **VCL2** (152.7.178.106) - main app server, this is where everything runs normally
+- **VCL3** (152.7.178.91) - backup server, kicks in if VCL2 goes down
+
+## What We Built
+
+### CI/CD Pipeline
+
+All our workflows live in `.github/workflows/`. Here's what happens:
+
+- **Pull Requests** - runs ESLint and Jest tests automatically (`pr-test.yml`)
+- **Merging to main** - deploys to VCL2 via SSH (`deploy.yml`)
+- **After merge** - syncs changes back to dev branch (`sync-dev.yml`)
+
+### Backup and Rollback
+
+We didn't want to lose stuff if a deploy goes wrong, so:
+
+- Before every deploy, we save a timestamped backup
+- If the deploy fails, it automatically rolls back to the previous version
+- All backups are stored in `~/backups/` on VCL2 if we ever need to restore manually
+
+### Database Replication
+
+The database on VCL2 gets synced to VCL3 every 30 seconds using a systemd timer. Basically it does a `pg_dump`, SCPs it over, and stores it in `/tmp/db-backup/`. The script is at `scripts/replicate-db.sh`.
+
+### Failover
+
+This was tricky to get right. VCL3 runs a health monitor (`monitor-vcl2-health.sh`) that pings VCL2 every 10 seconds. If it fails 3 times in a row (~30 sec), VCL3 automatically starts up and takes over.
+
+When VCL2 comes back online, it syncs the database from VCL3 (in case any orders came in during downtime) and then VCL3 goes back to standby mode. The monitor logs everything to `/tmp/monitor.log`.
+
+### Load Balancer
+
+VCL1 runs nginx as a reverse proxy. It normally sends all traffic to VCL2, but if VCL2 fails health checks, it switches to VCL3 automatically. Config is in `load_balancer/nginx-load-balancer.conf`.
+
+## Ansible Stuff
+
+We used Ansible to set up all the servers so we don't have to SSH in and configure things manually every time. Everything's in the `ansible/` folder.
+
+Main playbooks:
+- `site.yml` - runs everything
+- `0-setup-ssh-keys.yml` - sets up SSH keys between servers
+- `0-initial-setup.yml` - installs Docker, Node, etc.
+- `deploy.yml` - deploys the app to VCL2
+- `deploy-vcl3-standby.yml` - gets VCL3 ready as backup
+- `setup-vcl1-loadbalancer.yml` - configures nginx on VCL1
+- `setup-vcl3-monitor.yml` - installs the health monitor on VCL3
+- `setup-replication.yml` - sets up the DB replication timer
+- `security-hardening.yml` and `setup-firewall.yml` - security stuff
+
+To run everything:
+### **Step 1: Local Setup (On Your Laptop)**
+
+First you need to setup the ip address for the vcl machines.
+
+1.  **Open `ansible/inventory.yml`** and update the **IP addresses** and **ansible_user** for all 3 machines:
+    ```yaml
+    all:
+      hosts:
+        vcl1:
+          ansible_host: 152.7.176.221  # <--- CHANGE THIS IP
+          ansible_user: your_unity_id  # <--- CHANGE THIS USER
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+
+        vcl2:
+          ansible_host: 152.7.177.180  # <--- CHANGE THIS IP
+          ansible_user: your_unity_id  # <--- CHANGE THIS USER
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+
+        vcl3:
+          ansible_host: 152.7.178.104  # <--- CHANGE THIS IP
+          ansible_user: your_unity_id  # <--- CHANGE THIS USER
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+    ```
+
+2.  **Open `ansible/inventory-password.yml`** and do the exact same updates:
+    ```yaml
+    all:
+      hosts:
+        vcl1:
+          ansible_host: 152.7.176.221  # <--- CHANGE THIS IP
+          ansible_user: your_unity_id  # <--- CHANGE THIS USER
+          # ... keep the rest as is ...
+        
+        vcl2:
+          ansible_host: 152.7.177.180  # <--- CHANGE THIS IP
+          ansible_user: your_unity_id  # <--- CHANGE THIS USER
+
+        vcl3:
+          ansible_host: 152.7.178.104  # <--- CHANGE THIS IP
+          ansible_user: your_unity_id  # <--- CHANGE THIS USER
+    ```
+
+3.  **Save and Push Changes to GitHub:**
+    ```bash
+    git add ansible/inventory.yml ansible/inventory-password.yml
+    git commit -m "Update VCL IPs and User"
+    git push
+    ```
 
 ---
 
-## 📁 Project Structure
-
-```
-devops-project/
-├── .github/workflows/          # GitHub Actions CI/CD
-│   ├── deploy.yml              # Auto-deploy to VCL2 on push to main
-│   ├── pr-test.yml             # Run tests on pull requests
-│   └── sync-dev.yml            # Auto-sync dev branch after PR merge
-│
-├── ansible/                    # Infrastructure automation
-│   ├── inventory.yml           # Server IPs and SSH config
-│   ├── site.yml                # Master playbook (runs all)
-│   ├── 0-setup-ssh-keys.yml    # SSH key distribution
-│   ├── deploy.yml              # Deploy app to VCL2
-│   ├── setup-vcl1-loadbalancer.yml  # Nginx load balancer
-│   ├── setup-vcl3-monitor.yml  # Health monitoring + failover
-│   └── setup-replication.yml   # Database replication cron
-│
-├── coffee_project/             # Node.js application
-│   ├── app.js                  # Express server + API routes
-│   ├── db.js                   # PostgreSQL connection
-│   ├── migrate.js              # Database migrations
-│   ├── data.js                 # Seed data
-│   ├── Dockerfile              # Container definition
-│   ├── docker-compose.yml      # App + DB containers
-│   ├── test/                   # Unit tests (Jest)
-│   └── public/                 # Frontend (HTML/JS)
-│
-├── scripts/                    # Utility scripts
-│   ├── replicate-db.sh         # DB backup VCL2 → VCL3
-│   ├── reverse-replicate-db.sh # DB sync VCL3 → VCL2 (failback)
-│   ├── monitor-vcl2-health.sh  # Health check + auto-failover
-│   ├── manual-failover-to-vcl3.sh
-│   ├── failback-to-vcl2.sh
-│   └── systemd/                # Systemd service files
-│
-└── load_balancer/              # Nginx config for VCL1
-```
-
----
-
-## 🖥️ Infrastructure
-
-| Server | IP | Role |
-|--------|-----|------|
-| VCL1 | 152.7.178.184 | Load Balancer (Nginx) |
-| VCL2 | 152.7.178.106 | Primary App Server |
-| VCL3 | 152.7.178.91 | Cold Standby + Failover |
-
-**High Availability Features:**
-- ✅ Automatic deployment to VCL2 on merge to `main` branch
-- ✅ Database replication from VCL2 to VCL3 every 2 minutes
-- ✅ Auto-failover when VCL2 goes down (within 90 seconds)
-- ✅ Reverse replication on failback (preserve data)
-- ✅ Auto-sync `dev` branch after PR merge to `main`
-- ✅ Linting and testing in CI/CD pipeline
-
----
-
-## 🔄 CI/CD Workflows
-
-Location: `.github/workflows/`
-
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `deploy.yml` | Push to `main` | Run tests → Deploy to VCL2 |
-| `pr-test.yml` | Pull request | Run linting + unit tests |
-| `sync-dev.yml` | PR merged to `main` | Auto-merge main back to dev |
-
-**Quality Gate:** Tests must pass before deploy happens.
-
----
-
-## 🛠️ Ansible Playbooks
-
-Location: `ansible/`
-
-| Playbook | Purpose |
-|----------|---------|
-| `site.yml` | Master playbook - runs everything |
-| `0-setup-ssh-keys.yml` | Distribute SSH keys to all servers |
-| `deploy.yml` | Deploy app to VCL2 |
-| `setup-vcl1-loadbalancer.yml` | Configure Nginx on VCL1 |
-| `setup-vcl3-monitor.yml` | Install health monitor + failover service |
-| `setup-replication.yml` | Set up DB replication cron (every 2 min) |
-
-**Run all setup:**
+### **Step 2: Run this script in Local**
+To congigure the communication between all the vcl machines 
+You can download sshpass in your pc so when you run the script it only asks the password one time otherwise you need to enter password multiple times.
 ```bash
-cd ansible
-ansible-playbook -i inventory.yml site.yml
+cd scripts
+bash local-bootstrap.sh
 ```
+
+### **Step 3: Server Setup (On VCL 2)**
+
+We use VCL 2 as the "Control Node" to run Ansible.
+
+1.  **SSH into VCL 2:**
+    *(Replace `your_unity_id` and the IP with your VCL 2 info)*
+    ```bash
+    ssh your_unity_id@152.7.177.180
+    ```
+
+2.  **Clone the Repository:**
+    ```bash
+    git clone https://github.ncsu.edu/vpatel29/devops-project.git
+    cd devops-project
+    ```
+
+3.  **Setup Git Credentials (Important!):**
+    This set will save the creds. to the cache so anible can access it otherwise it would be stuck.
+    ```bash
+    # Enable creds caching for 1 hour
+    git config --global credential.helper cache
+    git config --global credential.helper 'cache --timeout=3600'
+
+    # Run a pull to trigger login prompt and save it
+    git pull
+    # (Enter your github creds)
+
+    # Run pull again to verify it works WITHOUT asking for password
+    git pull
+    ```
+
+4.  **Install Ansible:**
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y ansible sshpass
+    ```
+
+5.  **Run the Setup Script:**
+    This script will handle SSH keys, firewalls, Docker, and the app deployment automatically.
+    ```bash
+    cd ansible
+    bash SETUP.sh
+    ```
+    *   **Note:** It will ask for vcl password please enter the same.
 
 ---
 
-## 🚀 Quick Start
+### **Step 3: Verify It Works**
 
-### Run Locally with Docker
-```bash
-cd coffee_project
-docker compose up -d
-```
+Once the script finishes successfully:
 
-This starts:
-- Coffee app on http://localhost:3000
-- PostgreSQL database on port 5432
+1.  **Check the Website (Load Balancer):**
+    ```bash
+    curl -v http://152.7.176.221
+    ```
+    *(Replace with your VCL 1 IP. You should see the HTML for the Coffee App)*
 
-### Test the App
-```bash
-# Get available coffees
-curl http://localhost:3000/coffees
+## GitHub Secrets
 
-# Place an order
-curl -X POST http://localhost:3000/order \
-  -H "Content-Type: application/json" \
-  -d '{"coffeeId": 1, "quantity": 2}'
+You'll need these secrets set up in the repo:
 
-# View all orders
-curl http://localhost:3000/orders
-```
+- `VCL2_SSH_PRIVATE_KEY`, `VCL2_SSH_HOST`, `VCL2_SSH_USER` - for deploying to VCL2
+- `VCL3_SSH_PRIVATE_KEY`, `VCL3_SSH_HOST`, `VCL3_SSH_USER` - for syncing to VCL3
 
-### Stop Containers
-```bash
-docker compose down
-```
+## Random Note
 
----
+There's some extra scripts and test files lying around that we used while debugging. They're not really part of the main project, just stuff we tried while figuring things out. Sorry if it's a bit messy!
 
-## 🔁 High Availability
+## Github Accounts of Collaborators
 
-### Database Replication (VCL2 → VCL3)
-- **Frequency:** Every 2 minutes via cron
-- **Method:** `pg_dump` → SCP to VCL3 → Store as backup
-- **Script:** Deployed by `ansible/setup-replication.yml`
-
-### Health Monitoring (on VCL3)
-- **Checks:** `curl http://VCL2:3000/coffees` every 30 seconds
-- **Failover:** After 3 failed checks, VCL3 activates automatically
-- **Script:** Deployed by `ansible/setup-vcl3-monitor.yml`
-
-### Failover Process
-1. VCL3 detects VCL2 is down (3 failed health checks)
-2. Starts database container
-3. Restores from latest backup
-4. Starts app container
-5. VCL3 now serves traffic with production data
-
-### Failback Process
-1. VCL3 detects VCL2 is back online
-2. Syncs database back to VCL2 (preserves new data)
-3. Stops VCL3 containers
-4. VCL2 resumes as primary
-
-### Manual Failover (if needed)
-```bash
-# On VCL3
-cd ~/devops-project/coffee_project
-docker compose up -d
-curl http://localhost:3000/coffees
-```
-
----
-
-## 🗄️ Database (PostgreSQL)
-
-The app uses PostgreSQL. Connection is read from `DATABASE_URL` env variable.
-
-**Default:** `postgresql://postgres:postgres@localhost:5432/coffee_dev`
-
-### Run Without Docker
-```bash
-# Start postgres container
-docker run --name coffee-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=coffee_dev -p 5432:5432 -d postgres:15
-
-# Install deps and migrate
-cd coffee_project
-npm install
-npm run migrate
-npm start
-```
-
----
-
-## 🚢 Automated Deployment
-
-GitHub Actions automatically deploys to VCL2 when code is merged to `main`.
-
-### How It Works
-1. PR merged to `main` → triggers workflow
-2. Tests run first (quality gate)
-3. SSH into VCL2 → pull latest code
-4. Rebuild Docker containers
-5. App live at http://152.7.178.106:3000
-
-### GitHub Secrets Required
-- `VCL2_SSH_PRIVATE_KEY` - SSH key for VCL2 access
-- `VCL2_SSH_KNOWN_HOSTS` - (optional) Host key
-
-### Manual Deploy (if needed)
-```bash
-ssh sraval@152.7.178.106
-cd ~/devops-project/coffee_project
-git pull origin main
-docker compose down
-docker compose up -d --build
-```
-
----
-
-## 📝 Documentation
-
-| Doc | Location |
-|-----|----------|
-| Replication Guide | `scripts/REPLICATION_USAGE.md` |
-| Docker Setup | `coffee_project/DOCKER.md` |
-| Ansible Guide | `ansible/README.md` |
-
----
-
-## 👥 Team
-
-- **Vatsalkumar Patel** - CI/CD, GitHub Actions, rollback, monitoring
-- **Smit Sunilkumar Raval** - Ansible, infrastructure, replication, failover
+ Smit Sunilkumar Raval: sraval (ncsu account), smitraval24 (personal account)
+ 
+ Vatsalkumar Patel: vpatel29 (ncsu account)
