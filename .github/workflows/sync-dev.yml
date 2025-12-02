@@ -1,3 +1,12 @@
+# =============================================================================
+# Sync Dev Branch Workflow
+# =============================================================================
+# Triggered: When a PR from dev to main is merged
+# Purpose: Back-merge main to dev to keep branches in sync
+# Runner: Self-hosted runner on VCL1
+# Note: Prevents divergence between dev and main branches
+# =============================================================================
+
 name: Sync Dev Branch
 
 on:

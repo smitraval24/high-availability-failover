@@ -87,9 +87,9 @@ app.put('/coffees/:id/price', async (req, res) => {
       return res.status(404).json({ error: 'Coffee not found' });
     }
 
-    res.json({ 
-      message: 'Price updated successfully', 
-      coffee: result.rows[0] 
+    res.json({
+      message: 'Price updated successfully',
+      coffee: result.rows[0]
     });
   } catch (err) {
     console.error(err);

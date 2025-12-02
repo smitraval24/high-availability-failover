@@ -1,250 +1,136 @@
-# DevOps Project
+# CSC 519 - DevOps Project
 
-This repository contains the main DevOps project with a coffee delivery service.
+**Coffee Project** with automated CI/CD pipeline, high availability, and disaster recovery.
+
+---
 
 ## Infrastructure
 
-**VCL Machines:**
-- **VCL 1**: 152.7.178.184 (Routing and DNS)
-- **VCL 2**: 152.7.178.106 (Primary server with auto-deployment)
-- **VCL 3**: 152.7.178.91 (Cold standby server with DB replication)
+| Server | IP | Role |
+|--------|-----|------|
+| **VCL1** | 152.7.178.184 | nginx Load Balancer and GitHub Actions Runner (Self-hosted) |
+| **VCL2** | 152.7.178.106 | Primary Application Server |
+| **VCL3** | 152.7.178.91 | Cold Standby (Failover) |
 
-**High Availability Features:**
-- ✅ Automatic deployment to VCL2 on merge to `main` branch
-- ✅ Database replication from VCL2 to VCL3 every 2 minutes
-- ✅ Auto-sync `dev` branch after PR merge to `main`
-- ✅ Linting and testing in CI/CD pipeline
+---
 
-## Quick Start with Docker
+## Features Implemented
 
-Run the coffee project with PostgreSQL database using Docker:
+### 1. CI/CD Pipeline
 
+| Feature | Implementation | Trigger |
+|---------|---------------|---------|
+| **Linting** | ESLint via `pr-test.yml` | On Pull Request |
+| **Unit Tests** | Jest via `pr-test.yml` | On Pull Request |
+| **Auto Deploy** | `deploy.yml` → SSH to VCL2 | On push to `main` |
+| **Branch Sync** | `sync-dev.yml` back-merges main to dev | After PR merge |
+
+**Workflow Files:** `.github/workflows/`
+
+---
+
+### 2. Backup & Rollback
+
+| Feature | Implementation |
+|---------|---------------|
+| **Pre-deploy Backup** | `deploy.yml` creates timestamped backup before each deploy |
+| **Auto Rollback** | `deploy.yml` restores previous version if deployment fails |
+| **Manual Rollback** | Can restore any backup from `~/backups/` on VCL2 |
+
+
+---
+
+### 3. Database Replication
+
+| Feature | Implementation |
+|---------|---------------|
+| **VCL2 → VCL3 Sync** | `coffee-replication.timer` runs every 30 seconds |
+| **Method** | `pg_dump` on VCL2 → SCP to VCL3 → Store in `/tmp/db-backup/` |
+| **Script** | `scripts/replicate-db.sh` |
+
+**Systemd Service:** `/etc/systemd/system/coffee-replication.service` on VCL2
+
+---
+
+### 4. Failover (High Availability)
+
+| Feature | Implementation |
+|---------|---------------|
+| **Health Monitor** | `monitor-vcl2-health.sh` on VCL3 checks VCL2 every 10 seconds |
+| **Auto Failover** | After 3 failed checks (~30 sec), VCL3 activates automatically |
+| **Auto Failback** | When VCL2 recovers, syncs DB back and deactivates VCL3 |
+| **DB Sync on Failback** | VCL3 database is synced to VCL2 before deactivating |
+
+**Monitor Script:** `~/scripts/monitor-vcl2-health.sh` on VCL3  
+**Monitor Log:** `/tmp/monitor.log` on VCL3
+
+---
+
+### 5. Deployment on VCL3 (via deploy.yml)
+
+| Feature | Implementation |
+|---------|---------------|
+| **Code Sync** | `deploy.yml` also pulls latest code to VCL3 |
+| **Database Ready** | VCL3 keeps database container running with replicated data |
+| **App Standby** | App container starts only during failover |
+
+---
+
+### 6. Load Balancer (VCL1)
+
+| Feature | Implementation |
+|---------|---------------|
+| **Nginx Reverse Proxy** | Routes traffic to VCL2 (primary) or VCL3 (backup) |
+| **Auto Failover** | If VCL2 fails 3 health checks, routes to VCL3 automatically |
+| **Config File** | `load_balancer/nginx-load-balancer.conf` |
+| **Ansible Setup** | `ansible/setup-vcl1-loadbalancer.yml` |
+
+**Deployed to:** `/etc/nginx/sites-available/coffee-lb` on VCL1
+
+---
+
+## Ansible (Infrastructure as Code)
+
+We used Ansible to automate the initial setup and configuration of all servers.
+
+**Location:** `ansible/`
+
+| Playbook | Purpose |
+|----------|---------|
+| `site.yml` | Master playbook - runs all setup playbooks |
+| `0-setup-ssh-keys.yml` | Distribute SSH keys across all servers |
+| `0-initial-setup.yml` | Install Docker, Node.js, and dependencies |
+| `deploy.yml` | Deploy application to VCL2 |
+| `deploy-vcl3-standby.yml` | Set up VCL3 as cold standby |
+| `setup-vcl1-loadbalancer.yml` | Configure Nginx load balancer on VCL1 |
+| `setup-vcl3-monitor.yml` | Install health monitor script on VCL3 |
+| `setup-replication.yml` | Set up database replication timer on VCL2 |
+| `security-hardening.yml` | Security configurations |
+| `setup-firewall.yml` | Firewall rules for all servers |
+
+**Run all setup:**
 ```bash
-cd coffee_project
-docker-compose up -d
+cd ansible
+ansible-playbook -i inventory.yml site.yml
 ```
 
-This starts:
-- Coffee app on http://localhost:3000
-- PostgreSQL database on port 5432
+**Inventory:** `ansible/inventory.yml` contains all server IPs and SSH credentials.
 
-### Test the app
-```bash
-# Get available coffees
-curl http://localhost:3000/coffees
+---
 
-# Place an order
-curl -X POST http://localhost:3000/order \
-  -H "Content-Type: application/json" \
-  -d '{"coffeeId": 1, "quantity": 2}'
-```
+## GitHub Secrets Required
 
-### Stop containers
-```bash
-docker-compose down
-```
+| Secret | Purpose |
+|--------|---------|
+| `VCL2_SSH_PRIVATE_KEY` | SSH access to VCL2 |
+| `VCL2_SSH_HOST` | VCL2 IP address |
+| `VCL2_SSH_USER` | VCL2 username |
+| `VCL3_SSH_PRIVATE_KEY` | SSH access to VCL3 |
+| `VCL3_SSH_HOST` | VCL3 IP address |
+| `VCL3_SSH_USER` | VCL3 username |
 
-## High Availability Setup
+---
 
-### Database Replication (VCL2 → VCL3)
+## Note
 
-Automatic database replication runs every 2 minutes to keep VCL3 in sync with VCL2.
-
-**Setup on VCL2:**
-```bash
-# Quick setup
-cd ~/devops-project
-chmod +x scripts/setup-replication.sh
-./scripts/setup-replication.sh
-
-# Follow the prompts to complete setup
-```
-
-**Detailed Documentation:**
-- [Replication Setup Guide](scripts/REPLICATION_SETUP.md)
-- [Systemd Timer Setup](scripts/systemd/SYSTEMD_SETUP.md)
-
-**Monitor Replication:**
-```bash
-# View replication logs
-tail -f /var/log/coffee-replication/replicate.log
-
-# Check replication status (if using systemd)
-systemctl status coffee-replication.timer
-```
-
-### Failover to VCL3
-
-If VCL2 fails, activate VCL3:
-```bash
-# On VCL3
-cd ~/devops-project/coffee_project
-docker-compose up -d
-
-# Verify
-curl http://localhost:3000/coffees
-```
-
-Then update DNS/routing on VCL1 to point traffic to VCL3.
-
-## Database setup (PostgreSQL)
-
-This project uses PostgreSQL for the `coffee_project` service. The app reads the connection from the `DATABASE_URL` environment variable. If `DATABASE_URL` is not set, the project defaults to:
-
-```
-postgresql://postgres:postgres@localhost:5432/coffee_dev
-```
-
-Quick start (Docker)
-
-1. Start a local Postgres container:
-
-```bash
-docker run --name coffee-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=coffee_dev -p 5432:5432 -d postgres:15
-```
-
-2. Install dependencies and run the migration to create tables and seed the coffee catalogue:
-
-```bash
-cd coffee_project
-npm install
-npm run migrate
-```
-
-3. Start the service:
-
-```bash
-npm start
-# or run in a detached screen session:
-screen -S coffee -dm sh -c 'npm start'
-```
-
-Using an existing / hosted database
-
-If you have a hosted Postgres instance, set `DATABASE_URL` before running the migrate script or starting the server:
-
-```bash
-export DATABASE_URL='postgresql://USER:PASSWORD@HOST:PORT/DBNAME'
-npm run migrate
-npm start
-```
-
-CI (GitHub Actions) notes
-
-If you run tests or migrations in GitHub Actions, start a Postgres service in the job and set `DATABASE_URL` to point to the service. Example snippet for a job in `.github/workflows/*.yml`:
-
-```yaml
-services:
-	postgres:
-		image: postgres:15
-		env:
-			POSTGRES_DB: coffee_test
-			POSTGRES_USER: postgres
-			POSTGRES_PASSWORD: postgres
-		ports: ['5432:5432']
-		options: >-
-			--health-cmd pg_isready
-			--health-interval 10s
-			--health-timeout 5s
-			--health-retries 5
-
-env:
-	DATABASE_URL: postgres://postgres:postgres@localhost:5432/coffee_test
-```
-
-Cleanup
-
-To stop and remove the local docker container:
-
-```bash
-docker stop coffee-pg && docker rm coffee-pg
-```
-
-Questions or different DB?
-
-If you'd prefer a different database (MySQL, MongoDB, etc.) I can adapt the code and migration script — tell me which one and I'll implement the change.
-
-## Automated Deployment
-
-The project uses GitHub Actions to automatically deploy to VCL 2 when code is merged to `main`.
-
-### How it works
-
-1. When a PR is merged to `main`, the deployment workflow triggers
-2. The workflow (running on the self-hosted runner on VCL 1) SSHs into VCL 2
-3. Pulls the latest code from the `main` branch
-4. Stops old Docker containers
-5. Rebuilds and starts new containers with the updated code
-6. The app becomes accessible at **http://152.7.178.106:3000**
-
-### Prerequisites for deployment
-
-**On VCL 2 (152.7.178.106):**
-- Docker and Docker Compose installed
-- Project cloned at `~/devops-project`
-- SSH access configured for GitHub Actions
-
-**GitHub Repository Secrets (required):**
-- `VCL2_SSH_PRIVATE_KEY` - SSH private key for accessing VCL 2
-- `VCL2_SSH_KNOWN_HOSTS` - (optional) Host key for VCL 2
-
-### Setting up SSH for GitHub Actions
-
-1. Generate a dedicated SSH key pair:
-```bash
-ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/github_actions_deploy_key
-```
-
-2. Copy the public key to VCL 2:
-```bash
-ssh-copy-id -i ~/.ssh/github_actions_deploy_key.pub vpatel29@152.7.178.106
-```
-
-3. Add the private key to GitHub Secrets:
-```bash
-# Copy the private key
-cat ~/.ssh/github_actions_deploy_key
-
-# Go to: Repository Settings → Secrets and variables → Actions
-# Create secret: VCL2_SSH_PRIVATE_KEY
-# Paste the entire private key content (including BEGIN/END lines)
-```
-
-4. (Optional) Add known hosts:
-```bash
-ssh-keyscan -H 152.7.178.106
-
-# Add as secret: VCL2_SSH_KNOWN_HOSTS
-```
-
-### Manual deployment on VCL 2
-
-If you need to deploy manually:
-
-```bash
-ssh vpatel29@152.7.178.106
-cd ~/devops-project
-git pull origin main
-cd coffee_project
-docker-compose down
-docker-compose up -d --build
-```
-
-### Accessing the deployed app
-
-Once deployed, the coffee delivery service is accessible at:
-- **http://152.7.178.106:3000**
-
-Test endpoints:
-```bash
-# Get available coffees
-curl http://152.7.178.106:3000/coffees
-
-# Place an order
-curl -X POST http://152.7.178.106:3000/order \
-  -H "Content-Type: application/json" \
-  -d '{"coffeeId": 1, "quantity": 2}'
-
-# View all orders
-curl http://152.7.178.106:3000/orders
-```
+Some extra files in the repository (e.g., additional scripts, test playbooks) were used for debugging and testing during development. They are not part of the core functionality. Sorry for the inconvenience.

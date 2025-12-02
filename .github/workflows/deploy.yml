@@ -1,3 +1,16 @@
+# =============================================================================
+# Deploy Workflow
+# =============================================================================
+# Triggered: On push to main branch (after PR merge)
+# Purpose: Deploy the coffee app to production server (VCL2)
+# Runner: Self-hosted runner on VCL1
+# Features:
+#   - Creates backup before deployment for rollback capability
+#   - SSH deployment to VCL2 (152.7.178.106)
+#   - Docker Compose deployment with health checks
+#   - Automatic rollback on deployment failure
+# =============================================================================
+
 name: Deploy to VCL 2
 on:
   push:
@@ -32,6 +45,19 @@ jobs:
           echo "Testing network connectivity to VCL2..."
           ping -c 3 $VCL2_HOST || echo "Ping failed"
           nc -zv $VCL2_HOST 22 || echo "SSH port not reachable"
+
+      - name: Backup current container
+        env:
+          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
+          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+        run: |
+          echo "Creating backup of current container before deployment..."
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+            cd $HOME/devops-project
+            git pull origin main || true
+            chmod +x scripts/backup-container.sh
+            ./scripts/backup-container.sh
+          ENDSSH
 
       - name: Deploy to VCL 2
         env:
@@ -87,14 +113,15 @@ jobs:
           sleep 10
           
           echo "== App HTTP check =="
-          # retry HTTP check up to 12 times (60s) against VCL2's external IP
-          for i in {1..12}; do
-            if curl -sS -f http://$VCL2_HOST:3000/ >/dev/null 2>&1; then
-              echo "✓ App is reachable at http://$VCL2_HOST:3000/"
+          # retry HTTP check up to 3 times (15s) against VCL2's external IP
+          # Check /coffees endpoint to verify API is working
+          for i in {1..3}; do
+            if curl -sS -f http://$VCL2_HOST:3000/coffees >/dev/null 2>&1; then
+              echo "✓ App is reachable at http://$VCL2_HOST:3000/coffees"
               APP_OK=true
               break
             fi
-            echo "HTTP not ready ($i/12)"
+            echo "HTTP not ready ($i/3)"
             sleep 5
           done
 
@@ -116,7 +143,24 @@ jobs:
           
           echo "== All health checks passed =="
 
-      - name: Backup latest to VCL3 (if VCL2 healthy)
+      - name: Rollback on deployment failure
+        if: failure()
+        env:
+          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
+          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+        run: |
+          echo "=== HEALTH CHECKS FAILED - INITIATING ROLLBACK ==="
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+            cd $HOME/devops-project
+            chmod +x scripts/rollback-container.sh
+            ./scripts/rollback-container.sh
+          ENDSSH
+
+          echo "=== ROLLBACK COMPLETED ==="
+          echo "The application has been restored to the previous working version."
+          exit 1
+
+      - name: Cleanup backup and sync to VCL3 (if VCL2 healthy)
         if: success()
         continue-on-error: true
         env:
@@ -126,6 +170,15 @@ jobs:
           VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
           VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
         run: |
+          echo "Deployment successful! Cleaning up backup..."
+
+          # Cleanup backup on VCL2
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+            cd $HOME/devops-project
+            chmod +x scripts/cleanup-backup.sh
+            ./scripts/cleanup-backup.sh
+          ENDSSH
+
           echo "Pulling latest code on VCL3 for backup"
           
           # Check if VCL3 secrets are configured
