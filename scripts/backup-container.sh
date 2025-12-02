@@ -64,7 +64,7 @@ fi
 BACKUP_DIR=/tmp/coffee_deployment
 mkdir -p "$BACKUP_DIR"
 echo "$(date +%Y%m%d_%H%M%S)" > "$BACKUP_DIR/backup.timestamp"
-echo "$CONTAINER_ID" > "$BACKUP_DIR/backup.container_id"
+echo "$CONTAINER_NAME" > "$BACKUP_DIR/backup.container_id"
 
 log_info "Backup metadata saved to $BACKUP_DIR"
 log_info "Backup process completed successfully!"
