@@ -29,16 +29,19 @@ log_error "=== DEPLOYMENT FAILED - INITIATING ROLLBACK ==="
 
 # Check if backup exists (use sudo)
 log_info "Checking for backup image..."
-sudo docker images | grep -E "backup|coffee" || true
+sudo docker images | grep -E "backup" || true
 
-# Check for backup image - use simpler grep pattern
+# Check for backup image using docker image inspect (more reliable)
 BACKUP_IMAGE=""
-if sudo docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "coffee_project-app:backup"; then
+if sudo docker image inspect coffee_project-app:backup >/dev/null 2>&1; then
     BACKUP_IMAGE="coffee_project-app:backup"
-elif sudo docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "coffee-app-backup"; then
-    BACKUP_IMAGE="coffee-app-backup:latest"
-elif sudo docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "coffee_app:backup"; then
+    log_info "Found backup: $BACKUP_IMAGE"
+elif sudo docker image inspect coffee_app:backup >/dev/null 2>&1; then
     BACKUP_IMAGE="coffee_app:backup"
+    log_info "Found backup: $BACKUP_IMAGE"
+elif sudo docker image inspect coffee-app-backup:latest >/dev/null 2>&1; then
+    BACKUP_IMAGE="coffee-app-backup:latest"
+    log_info "Found backup: $BACKUP_IMAGE"
 fi
 
 if [ -z "$BACKUP_IMAGE" ]; then
@@ -65,19 +68,31 @@ sleep 3
 
 # Start just the database first
 log_info "Starting database..."
-sudo docker compose up -d db || sudo docker-compose up -d db
+sudo docker compose up -d db || sudo docker-compose up -d db || true
 
 sleep 5
 
-# Run the backup app image manually
+# Check if db is running
+if ! sudo docker ps | grep -q "coffee_db\|db"; then
+    log_warn "Database container not running, trying to start it..."
+    sudo docker run -d \
+        --name coffee_db \
+        --network coffee_project_default \
+        -e POSTGRES_PASSWORD=postgres \
+        -e POSTGRES_DB=coffee_dev \
+        postgres:15-alpine
+    sleep 5
+fi
+
+# Run the backup app image manually (use original CMD from image)
 log_info "Starting app from backup image: $BACKUP_IMAGE..."
 sudo docker run -d \
     --name coffee_app \
     --network coffee_project_default \
     -p 3000:3000 \
     -e DATABASE_URL=postgresql://postgres:postgres@db:5432/coffee_dev \
-    "$BACKUP_IMAGE" \
-    node app.js
+    -w /app \
+    "$BACKUP_IMAGE"
 
 # Wait for containers to be ready
 log_info "Waiting for application to be ready..."
