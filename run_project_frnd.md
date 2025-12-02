@@ -65,7 +65,7 @@ We use VCL 2 as the "Control Node" to run Ansible.
 
 2.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/sraval/devops-project.git
+    git clone https://github.ncsu.edu/vpatel29/devops-project.git
     cd devops-project
     ```
 
