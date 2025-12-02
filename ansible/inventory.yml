@@ -9,12 +9,12 @@ all:
       ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 
     vcl2:
-      ansible_host: 152.7.177.180
+      ansible_host: 152.7.176.221
       ansible_user: sraval
       ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 
     vcl3:
-      ansible_host: 152.7.176.221
+      ansible_host: 152.7.177.180
       ansible_user: sraval
       ansible_ssh_private_key_file: ~/.ssh/id_ed25519
 
