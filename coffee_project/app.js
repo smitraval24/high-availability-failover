@@ -11,13 +11,8 @@ app.use(express.static('public'));
 
 // Endpoint to fetch available coffees
 app.get('/coffees', async (req, res) => {
-  try {
-    const result = await query('SELECT id, name, price FROM coffees ORDER BY id');
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'DB error' });
-  }
+  // INTENTIONAL CRASH - Testing rollback feature
+  throw new Error('INTENTIONAL CRASH - Testing rollback on health check failure');
 });
 
 // Endpoint to place an order
