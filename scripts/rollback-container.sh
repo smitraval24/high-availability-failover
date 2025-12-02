@@ -27,35 +27,55 @@ BACKUP_DIR=/tmp/coffee_deployment
 
 log_error "=== DEPLOYMENT FAILED - INITIATING ROLLBACK ==="
 
-# Check if backup exists
-if ! docker images | grep -q "coffee_project-app.*backup"; then
+# Check if backup exists (use sudo)
+log_info "Checking for backup image..."
+sudo docker images | grep -E "backup|coffee" || true
+
+# Check for either backup image name
+BACKUP_IMAGE=""
+if sudo docker images | grep -q "coffee_project-app.*backup"; then
+    BACKUP_IMAGE="coffee_project-app:backup"
+elif sudo docker images | grep -q "coffee-app-backup"; then
+    BACKUP_IMAGE="coffee-app-backup:latest"
+fi
+
+if [ -z "$BACKUP_IMAGE" ]; then
     log_error "No backup image found! Cannot rollback."
+    log_error "Available images:"
+    sudo docker images
     log_error "Manual intervention required."
     exit 1
 fi
 
-log_info "Backup image found. Starting rollback process..."
+log_info "Backup image found: $BACKUP_IMAGE. Starting rollback process..."
 
 # Stop the failed new containers
 log_info "Stopping failed containers..."
 cd "$PROJECT_DIR"
-sudo docker-compose down || true
+sudo docker compose down || sudo docker-compose down || true
+
+# Remove the failed app container if exists
+sudo docker rm -f coffee_app 2>/dev/null || true
+sudo docker rm -f coffee_app_rollback 2>/dev/null || true
 
 # Wait a moment for cleanup
 sleep 3
 
-# Tag the backup as latest  
-log_info "Restoring backup image as latest..."
-docker tag coffee_app:backup coffee_project-app:latest
+# Start just the database first
+log_info "Starting database..."
+sudo docker compose up -d db || sudo docker-compose up -d db
 
-# Restart containers WITHOUT rebuilding (use existing images)
-log_info "Starting containers with backed-up version..."
-if sudo docker-compose up -d --no-build; then
-    log_info "Containers started with backup version"
-else
-    log_error "Failed to start containers with backup"
-    exit 1
-fi
+sleep 5
+
+# Run the backup app image manually
+log_info "Starting app from backup image: $BACKUP_IMAGE..."
+sudo docker run -d \
+    --name coffee_app \
+    --network coffee_project_default \
+    -p 3000:3000 \
+    -e DATABASE_URL=postgresql://postgres:postgres@db:5432/coffee_dev \
+    "$BACKUP_IMAGE" \
+    node app.js
 
 # Wait for containers to be ready
 log_info "Waiting for application to be ready..."
