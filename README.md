@@ -2,8 +2,6 @@
 
 This is our Coffee Project for the DevOps course. We built a full CI/CD pipeline with high availability and automatic failover between servers.
 
-## Demo Video
-
 ## Our Setup
 
 We're using 3 VCL machines:
@@ -190,4 +188,5 @@ There's some extra scripts and test files lying around that we used while debugg
 ## Github Accounts of Collaborators
 
  Smit Sunilkumar Raval: sraval (ncsu account), smitraval24 (personal account)
+ 
  Vatsalkumar Patel: vpatel29 (ncsu account)
