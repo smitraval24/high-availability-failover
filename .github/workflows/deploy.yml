@@ -33,6 +33,18 @@ jobs:
           ping -c 3 $VCL2_HOST || echo "Ping failed"
           nc -zv $VCL2_HOST 22 || echo "SSH port not reachable"
 
+      - name: Backup current container
+        env:
+          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
+          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+        run: |
+          echo "Creating backup of current container before deployment..."
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+            cd $HOME/devops-project
+            chmod +x scripts/backup-container.sh
+            ./scripts/backup-container.sh
+          ENDSSH
+
       - name: Deploy to VCL 2
         env:
           VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
@@ -116,7 +128,24 @@ jobs:
           
           echo "== All health checks passed =="
 
-      - name: Backup latest to VCL3 (if VCL2 healthy)
+      - name: Rollback on deployment failure
+        if: failure()
+        env:
+          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
+          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+        run: |
+          echo "=== HEALTH CHECKS FAILED - INITIATING ROLLBACK ==="
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+            cd $HOME/devops-project
+            chmod +x scripts/rollback-container.sh
+            ./scripts/rollback-container.sh
+          ENDSSH
+
+          echo "=== ROLLBACK COMPLETED ==="
+          echo "The application has been restored to the previous working version."
+          exit 1
+
+      - name: Cleanup backup and sync to VCL3 (if VCL2 healthy)
         if: success()
         continue-on-error: true
         env:
@@ -126,6 +155,15 @@ jobs:
           VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
           VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
         run: |
+          echo "Deployment successful! Cleaning up backup..."
+
+          # Cleanup backup on VCL2
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+            cd $HOME/devops-project
+            chmod +x scripts/cleanup-backup.sh
+            ./scripts/cleanup-backup.sh
+          ENDSSH
+
           echo "Pulling latest code on VCL3 for backup"
           
           # Check if VCL3 secrets are configured
