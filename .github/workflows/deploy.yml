@@ -99,15 +99,15 @@ jobs:
           sleep 10
           
           echo "== App HTTP check =="
-          # retry HTTP check up to 12 times (60s) against VCL2's external IP
+          # retry HTTP check up to 3 times (15s) against VCL2's external IP
           # Check /coffees endpoint to verify API is working
-          for i in {1..12}; do
+          for i in {1..3}; do
             if curl -sS -f http://$VCL2_HOST:3000/coffees >/dev/null 2>&1; then
               echo "✓ App is reachable at http://$VCL2_HOST:3000/coffees"
               APP_OK=true
               break
             fi
-            echo "HTTP not ready ($i/12)"
+            echo "HTTP not ready ($i/3)"
             sleep 5
           done
 

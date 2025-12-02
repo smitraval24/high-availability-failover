@@ -31,12 +31,14 @@ log_error "=== DEPLOYMENT FAILED - INITIATING ROLLBACK ==="
 log_info "Checking for backup image..."
 sudo docker images | grep -E "backup|coffee" || true
 
-# Check for either backup image name
+# Check for backup image - use simpler grep pattern
 BACKUP_IMAGE=""
-if sudo docker images | grep -q "coffee_project-app.*backup"; then
+if sudo docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "coffee_project-app:backup"; then
     BACKUP_IMAGE="coffee_project-app:backup"
-elif sudo docker images | grep -q "coffee-app-backup"; then
+elif sudo docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "coffee-app-backup"; then
     BACKUP_IMAGE="coffee-app-backup:latest"
+elif sudo docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "coffee_app:backup"; then
+    BACKUP_IMAGE="coffee_app:backup"
 fi
 
 if [ -z "$BACKUP_IMAGE" ]; then
