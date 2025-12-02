@@ -100,9 +100,10 @@ jobs:
           
           echo "== App HTTP check =="
           # retry HTTP check up to 12 times (60s) against VCL2's external IP
+          # Check /coffees endpoint to verify API is working
           for i in {1..12}; do
-            if curl -sS -f http://$VCL2_HOST:3000/ >/dev/null 2>&1; then
-              echo "✓ App is reachable at http://$VCL2_HOST:3000/"
+            if curl -sS -f http://$VCL2_HOST:3000/coffees >/dev/null 2>&1; then
+              echo "✓ App is reachable at http://$VCL2_HOST:3000/coffees"
               APP_OK=true
               break
             fi
