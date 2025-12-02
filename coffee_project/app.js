@@ -9,15 +9,10 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static('public'));
 
-// Endpoint to fetch available coffees
+// ⚠️ BREAKING CHANGE: This will cause health check to fail and trigger rollback
+// The /coffees endpoint now crashes immediately
 app.get('/coffees', async (req, res) => {
-  try {
-    const result = await query('SELECT id, name, price FROM coffees ORDER BY id');
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'DB error' });
-  }
+  throw new Error('INTENTIONAL CRASH - Testing rollback on health check failure');
 });
 
 // Endpoint to place an order
