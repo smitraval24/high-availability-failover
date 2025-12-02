@@ -1,94 +1,112 @@
-# DevOps Project - Coffee Delivery Service
+# CSC 519 - DevOps Project
 
-A fully automated DevOps pipeline with CI/CD, high availability, and disaster recovery.
-
----
-
-## 📁 Project Structure
-
-```
-devops-project/
-├── .github/workflows/          # GitHub Actions CI/CD
-│   ├── deploy.yml              # Auto-deploy to VCL2 on push to main
-│   ├── pr-test.yml             # Run tests on pull requests
-│   └── sync-dev.yml            # Auto-sync dev branch after PR merge
-│
-├── ansible/                    # Infrastructure automation
-│   ├── inventory.yml           # Server IPs and SSH config
-│   ├── site.yml                # Master playbook (runs all)
-│   ├── 0-setup-ssh-keys.yml    # SSH key distribution
-│   ├── deploy.yml              # Deploy app to VCL2
-│   ├── setup-vcl1-loadbalancer.yml  # Nginx load balancer
-│   ├── setup-vcl3-monitor.yml  # Health monitoring + failover
-│   └── setup-replication.yml   # Database replication cron
-│
-├── coffee_project/             # Node.js application
-│   ├── app.js                  # Express server + API routes
-│   ├── db.js                   # PostgreSQL connection
-│   ├── migrate.js              # Database migrations
-│   ├── data.js                 # Seed data
-│   ├── Dockerfile              # Container definition
-│   ├── docker-compose.yml      # App + DB containers
-│   ├── test/                   # Unit tests (Jest)
-│   └── public/                 # Frontend (HTML/JS)
-│
-├── scripts/                    # Utility scripts
-│   ├── replicate-db.sh         # DB backup VCL2 → VCL3
-│   ├── reverse-replicate-db.sh # DB sync VCL3 → VCL2 (failback)
-│   ├── monitor-vcl2-health.sh  # Health check + auto-failover
-│   ├── manual-failover-to-vcl3.sh
-│   ├── failback-to-vcl2.sh
-│   └── systemd/                # Systemd service files
-│
-└── load_balancer/              # Nginx config for VCL1
-```
+**Coffee Project** with automated CI/CD pipeline, high availability, and disaster recovery.
 
 ---
 
-## 🖥️ Infrastructure
+## Infrastructure
 
 | Server | IP | Role |
 |--------|-----|------|
-| VCL1 | 152.7.178.184 | Load Balancer (Nginx) |
-| VCL2 | 152.7.178.106 | Primary App Server |
-| VCL3 | 152.7.178.91 | Cold Standby + Failover |
-
-**High Availability Features:**
-- ✅ Automatic deployment to VCL2 on merge to `main` branch
-- ✅ Database replication from VCL2 to VCL3 every 2 minutes
-- ✅ Auto-failover when VCL2 goes down (within 90 seconds)
-- ✅ Reverse replication on failback (preserve data)
-- ✅ Auto-sync `dev` branch after PR merge to `main`
-- ✅ Linting and testing in CI/CD pipeline
+| **VCL1** | 152.7.178.184 | nginx Load Balancer and GitHub Actions Runner (Self-hosted) |
+| **VCL2** | 152.7.178.106 | Primary Application Server |
+| **VCL3** | 152.7.178.91 | Cold Standby (Failover) |
 
 ---
 
-## 🔄 CI/CD Workflows
+## Features Implemented
 
-Location: `.github/workflows/`
+### 1. CI/CD Pipeline
 
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `deploy.yml` | Push to `main` | Run tests → Deploy to VCL2 |
-| `pr-test.yml` | Pull request | Run linting + unit tests |
-| `sync-dev.yml` | PR merged to `main` | Auto-merge main back to dev |
+| Feature | Implementation | Trigger |
+|---------|---------------|---------|
+| **Linting** | ESLint via `pr-test.yml` | On Pull Request |
+| **Unit Tests** | Jest via `pr-test.yml` | On Pull Request |
+| **Auto Deploy** | `deploy.yml` → SSH to VCL2 | On push to `main` |
+| **Branch Sync** | `sync-dev.yml` back-merges main to dev | After PR merge |
 
-**Quality Gate:** Tests must pass before deploy happens.
+**Workflow Files:** `.github/workflows/`
 
 ---
 
-## 🛠️ Ansible Playbooks
+### 2. Backup & Rollback
 
-Location: `ansible/`
+| Feature | Implementation |
+|---------|---------------|
+| **Pre-deploy Backup** | `deploy.yml` creates timestamped backup before each deploy |
+| **Auto Rollback** | `deploy.yml` restores previous version if deployment fails |
+| **Manual Rollback** | Can restore any backup from `~/backups/` on VCL2 |
+
+
+---
+
+### 3. Database Replication
+
+| Feature | Implementation |
+|---------|---------------|
+| **VCL2 → VCL3 Sync** | `coffee-replication.timer` runs every 30 seconds |
+| **Method** | `pg_dump` on VCL2 → SCP to VCL3 → Store in `/tmp/db-backup/` |
+| **Script** | `scripts/replicate-db.sh` |
+
+**Systemd Service:** `/etc/systemd/system/coffee-replication.service` on VCL2
+
+---
+
+### 4. Failover (High Availability)
+
+| Feature | Implementation |
+|---------|---------------|
+| **Health Monitor** | `monitor-vcl2-health.sh` on VCL3 checks VCL2 every 10 seconds |
+| **Auto Failover** | After 3 failed checks (~30 sec), VCL3 activates automatically |
+| **Auto Failback** | When VCL2 recovers, syncs DB back and deactivates VCL3 |
+| **DB Sync on Failback** | VCL3 database is synced to VCL2 before deactivating |
+
+**Monitor Script:** `~/scripts/monitor-vcl2-health.sh` on VCL3  
+**Monitor Log:** `/tmp/monitor.log` on VCL3
+
+---
+
+### 5. Deployment on VCL3 (via deploy.yml)
+
+| Feature | Implementation |
+|---------|---------------|
+| **Code Sync** | `deploy.yml` also pulls latest code to VCL3 |
+| **Database Ready** | VCL3 keeps database container running with replicated data |
+| **App Standby** | App container starts only during failover |
+
+---
+
+### 6. Load Balancer (VCL1)
+
+| Feature | Implementation |
+|---------|---------------|
+| **Nginx Reverse Proxy** | Routes traffic to VCL2 (primary) or VCL3 (backup) |
+| **Auto Failover** | If VCL2 fails 3 health checks, routes to VCL3 automatically |
+| **Config File** | `load_balancer/nginx-load-balancer.conf` |
+| **Ansible Setup** | `ansible/setup-vcl1-loadbalancer.yml` |
+
+**Deployed to:** `/etc/nginx/sites-available/coffee-lb` on VCL1
+
+---
+
+## Ansible (Infrastructure as Code)
+
+We used Ansible to automate the initial setup and configuration of all servers.
+
+**Location:** `ansible/`
 
 | Playbook | Purpose |
 |----------|---------|
-| `site.yml` | Master playbook - runs everything |
-| `0-setup-ssh-keys.yml` | Distribute SSH keys to all servers |
-| `deploy.yml` | Deploy app to VCL2 |
-| `setup-vcl1-loadbalancer.yml` | Configure Nginx on VCL1 |
-| `setup-vcl3-monitor.yml` | Install health monitor + failover service |
-| `setup-replication.yml` | Set up DB replication cron (every 2 min) |
+| `site.yml` | Master playbook - runs all setup playbooks |
+| `0-setup-ssh-keys.yml` | Distribute SSH keys across all servers |
+| `0-initial-setup.yml` | Install Docker, Node.js, and dependencies |
+| `deploy.yml` | Deploy application to VCL2 |
+| `deploy-vcl3-standby.yml` | Set up VCL3 as cold standby |
+| `setup-vcl1-loadbalancer.yml` | Configure Nginx load balancer on VCL1 |
+| `setup-vcl3-monitor.yml` | Install health monitor script on VCL3 |
+| `setup-replication.yml` | Set up database replication timer on VCL2 |
+| `security-hardening.yml` | Security configurations |
+| `setup-firewall.yml` | Firewall rules for all servers |
 
 **Run all setup:**
 ```bash
@@ -96,133 +114,23 @@ cd ansible
 ansible-playbook -i inventory.yml site.yml
 ```
 
----
-
-## 🚀 Quick Start
-
-### Run Locally with Docker
-```bash
-cd coffee_project
-docker compose up -d
-```
-
-This starts:
-- Coffee app on http://localhost:3000
-- PostgreSQL database on port 5432
-
-### Test the App
-```bash
-# Get available coffees
-curl http://localhost:3000/coffees
-
-# Place an order
-curl -X POST http://localhost:3000/order \
-  -H "Content-Type: application/json" \
-  -d '{"coffeeId": 1, "quantity": 2}'
-
-# View all orders
-curl http://localhost:3000/orders
-```
-
-### Stop Containers
-```bash
-docker compose down
-```
+**Inventory:** `ansible/inventory.yml` contains all server IPs and SSH credentials.
 
 ---
 
-## 🔁 High Availability
+## GitHub Secrets Required
 
-### Database Replication (VCL2 → VCL3)
-- **Frequency:** Every 2 minutes via cron
-- **Method:** `pg_dump` → SCP to VCL3 → Store as backup
-- **Script:** Deployed by `ansible/setup-replication.yml`
-
-### Health Monitoring (on VCL3)
-- **Checks:** `curl http://VCL2:3000/coffees` every 30 seconds
-- **Failover:** After 3 failed checks, VCL3 activates automatically
-- **Script:** Deployed by `ansible/setup-vcl3-monitor.yml`
-
-### Failover Process
-1. VCL3 detects VCL2 is down (3 failed health checks)
-2. Starts database container
-3. Restores from latest backup
-4. Starts app container
-5. VCL3 now serves traffic with production data
-
-### Failback Process
-1. VCL3 detects VCL2 is back online
-2. Syncs database back to VCL2 (preserves new data)
-3. Stops VCL3 containers
-4. VCL2 resumes as primary
-
-### Manual Failover (if needed)
-```bash
-# On VCL3
-cd ~/devops-project/coffee_project
-docker compose up -d
-curl http://localhost:3000/coffees
-```
+| Secret | Purpose |
+|--------|---------|
+| `VCL2_SSH_PRIVATE_KEY` | SSH access to VCL2 |
+| `VCL2_SSH_HOST` | VCL2 IP address |
+| `VCL2_SSH_USER` | VCL2 username |
+| `VCL3_SSH_PRIVATE_KEY` | SSH access to VCL3 |
+| `VCL3_SSH_HOST` | VCL3 IP address |
+| `VCL3_SSH_USER` | VCL3 username |
 
 ---
 
-## 🗄️ Database (PostgreSQL)
+## Note
 
-The app uses PostgreSQL. Connection is read from `DATABASE_URL` env variable.
-
-**Default:** `postgresql://postgres:postgres@localhost:5432/coffee_dev`
-
-### Run Without Docker
-```bash
-# Start postgres container
-docker run --name coffee-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=coffee_dev -p 5432:5432 -d postgres:15
-
-# Install deps and migrate
-cd coffee_project
-npm install
-npm run migrate
-npm start
-```
-
----
-
-## 🚢 Automated Deployment
-
-GitHub Actions automatically deploys to VCL2 when code is merged to `main`.
-
-### How It Works
-1. PR merged to `main` → triggers workflow
-2. Tests run first (quality gate)
-3. SSH into VCL2 → pull latest code
-4. Rebuild Docker containers
-5. App live at http://152.7.178.106:3000
-
-### GitHub Secrets Required
-- `VCL2_SSH_PRIVATE_KEY` - SSH key for VCL2 access
-- `VCL2_SSH_KNOWN_HOSTS` - (optional) Host key
-
-### Manual Deploy (if needed)
-```bash
-ssh sraval@152.7.178.106
-cd ~/devops-project/coffee_project
-git pull origin main
-docker compose down
-docker compose up -d --build
-```
-
----
-
-## 📝 Documentation
-
-| Doc | Location |
-|-----|----------|
-| Replication Guide | `scripts/REPLICATION_USAGE.md` |
-| Docker Setup | `coffee_project/DOCKER.md` |
-| Ansible Guide | `ansible/README.md` |
-
----
-
-## 👥 Team
-
-- **Vatsalkumar Patel** - CI/CD, GitHub Actions, rollback, monitoring
-- **Smit Sunilkumar Raval** - Ansible, infrastructure, replication, failover
+Some extra files in the repository (e.g., additional scripts, test playbooks) were used for debugging and testing during development. They are not part of the core functionality. Sorry for the inconvenience.
