@@ -2,8 +2,6 @@
 
 Here is the complete guide to run the project setup from scratch. It covers everything from the local setup to running the automation on the VCL machine.
 
-first step before running these steps below is to run the local-bootstrap.sh from the scripts folder on your local machine
-
 ### **Step 1: Local Setup (On Your Laptop)**
 
 Before doing anything on the servers, you need to update the configuration files with your specific VCL details.
@@ -67,7 +65,7 @@ We use VCL 2 as the "Control Node" to run Ansible.
 
 2.  **Clone the Repository:**
     ```bash
-    git clone https://github.ncsu.edu/vpatel29/devops-project.git
+    git clone https://github.com/sraval/devops-project.git
     cd devops-project
     ```
 
