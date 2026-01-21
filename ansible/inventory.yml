@@ -1,29 +1,65 @@
+# =============================================================================
 # Ansible Inventory
-# Defines all servers in our infrastructure
+# =============================================================================
+# Defines all servers in the high-availability infrastructure
+#
+# Server configuration can be set via environment variables:
+#   - PRIMARY_HOST, PRIMARY_USER
+#   - BACKUP_HOST, BACKUP_USER
+#   - LB_HOST, LB_USER (optional)
+#
+# Or edit this file directly with your server IPs.
+# =============================================================================
 
 all:
+  vars:
+    # Default SSH settings
+    ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+
+    # Application settings (can be overridden)
+    app_name: "{{ lookup('env', 'APP_NAME') | default('coffee', true) }}"
+    app_port: "{{ lookup('env', 'APP_PORT') | default('3000', true) }}"
+    app_dir: "{{ lookup('env', 'APP_DIR') | default('coffee_project', true) }}"
+    project_dir: "{{ lookup('env', 'PROJECT_DIR') | default('high-availability-failover', true) }}"
+    db_name: "{{ lookup('env', 'DB_NAME') | default('coffee_dev', true) }}"
+    health_endpoint: "{{ lookup('env', 'HEALTH_ENDPOINT') | default('/coffees', true) }}"
+
   hosts:
-    vcl1:
-      ansible_host: 152.7.176.240
-      ansible_user: sraval
-      ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+    # Load Balancer (optional - comment out if not using)
+    lb:
+      ansible_host: "{{ lookup('env', 'LB_HOST') | default('', true) }}"
+      ansible_user: "{{ lookup('env', 'LB_USER') | default(lookup('env', 'PRIMARY_USER'), true) }}"
 
-    vcl2:
-      ansible_host: 152.7.176.221
-      ansible_user: sraval
-      ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+    # Primary Application Server (REQUIRED)
+    primary:
+      ansible_host: "{{ lookup('env', 'PRIMARY_HOST') }}"
+      ansible_user: "{{ lookup('env', 'PRIMARY_USER') }}"
 
-    vcl3:
-      ansible_host: 152.7.177.180
-      ansible_user: sraval
-      ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+    # Backup/Standby Application Server (REQUIRED for high availability)
+    backup:
+      ansible_host: "{{ lookup('env', 'BACKUP_HOST') }}"
+      ansible_user: "{{ lookup('env', 'BACKUP_USER') | default(lookup('env', 'PRIMARY_USER'), true) }}"
 
   children:
-    load_balancer:
+    # Group: Load balancer(s)
+    load_balancers:
       hosts:
-        vcl1:
+        lb:
 
+    # Group: Application servers (primary + backup)
     app_servers:
       hosts:
-        vcl2:
-        vcl3:
+        primary:
+        backup:
+
+    # Group: Primary server only
+    primary_servers:
+      hosts:
+        primary:
+
+    # Group: Backup/standby servers
+    backup_servers:
+      hosts:
+        backup:

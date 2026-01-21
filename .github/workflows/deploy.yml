@@ -2,122 +2,185 @@
 # Deploy Workflow
 # =============================================================================
 # Triggered: On push to main branch (after PR merge)
-# Purpose: Deploy the coffee app to production server (VCL2)
-# Runner: Self-hosted runner on VCL1
+# Purpose: Deploy the application to production server with high availability
+# Runner: Configurable - supports both GitHub-hosted and self-hosted runners
 # Features:
 #   - Creates backup before deployment for rollback capability
-#   - SSH deployment to VCL2 (152.7.178.106)
+#   - SSH deployment to primary server
 #   - Docker Compose deployment with health checks
 #   - Automatic rollback on deployment failure
+#   - Syncs code to backup server for failover readiness
+#
+# Required Secrets:
+#   - PRIMARY_SSH_PRIVATE_KEY: SSH private key for primary server
+#   - BACKUP_SSH_PRIVATE_KEY: SSH private key for backup server
+#
+# Required Variables (set in GitHub repo settings):
+#   - PRIMARY_HOST: IP/hostname of primary server
+#   - PRIMARY_USER: SSH username for primary server
+#   - BACKUP_HOST: IP/hostname of backup server
+#   - BACKUP_USER: SSH username for backup server
+#
+# Optional Variables:
+#   - RUNNER: Runner label (default: ubuntu-latest, or "self-hosted, linux, x64")
+#   - PROJECT_DIR: Project directory name (default: high-availability-failover)
+#   - APP_PORT: Application port (default: 3000)
+#   - APP_DIR: Application subdirectory (default: coffee_project)
+#   - DB_CONTAINER: Database container name (default: coffee_db)
+#   - HEALTH_ENDPOINT: Health check endpoint (default: /coffees)
 # =============================================================================
 
-name: Deploy to VCL 2
+name: Deploy to Production
+
 on:
   push:
     branches:
       - main
 
+env:
+  # Default values - can be overridden by repository variables
+  PROJECT_DIR: ${{ vars.PROJECT_DIR || 'high-availability-failover' }}
+  APP_DIR: ${{ vars.APP_DIR || 'coffee_project' }}
+  APP_PORT: ${{ vars.APP_PORT || '3000' }}
+  DB_CONTAINER: ${{ vars.DB_CONTAINER || 'coffee_db' }}
+  HEALTH_ENDPOINT: ${{ vars.HEALTH_ENDPOINT || '/coffees' }}
+
 jobs:
   deploy:
-    name: Deploy coffee app to VCL 2
-    runs-on: [self-hosted, linux, x64]
-    
+    name: Deploy to production server
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+
     steps:
-      - name: Setup SSH
+      - name: Validate required configuration
+        run: |
+          echo "Validating deployment configuration..."
+
+          # Check required secrets (we can only check if they're empty)
+          if [ -z "${{ secrets.PRIMARY_SSH_PRIVATE_KEY }}" ]; then
+            echo "::error::Missing required secret: PRIMARY_SSH_PRIVATE_KEY"
+            exit 1
+          fi
+
+          # Check required variables
+          if [ -z "${{ vars.PRIMARY_HOST }}" ]; then
+            echo "::error::Missing required variable: PRIMARY_HOST"
+            exit 1
+          fi
+
+          if [ -z "${{ vars.PRIMARY_USER }}" ]; then
+            echo "::error::Missing required variable: PRIMARY_USER"
+            exit 1
+          fi
+
+          # Check backup server configuration (required for high availability)
+          if [ -z "${{ vars.BACKUP_HOST }}" ]; then
+            echo "::error::Missing required variable: BACKUP_HOST (required for high availability)"
+            exit 1
+          fi
+
+          if [ -z "${{ vars.BACKUP_USER }}" ]; then
+            echo "::error::Missing required variable: BACKUP_USER (required for high availability)"
+            exit 1
+          fi
+
+          echo "✓ All required configuration present"
+          echo "  Primary: ${{ vars.PRIMARY_USER }}@${{ vars.PRIMARY_HOST }}"
+          echo "  Backup:  ${{ vars.BACKUP_USER }}@${{ vars.BACKUP_HOST }}"
+          echo "  Project: ${{ env.PROJECT_DIR }}/${{ env.APP_DIR }}"
+
+      - name: Setup SSH for primary server
         env:
-          VCL2_SSH_PRIVATE_KEY: ${{ secrets.VCL2_SSH_PRIVATE_KEY }}
+          PRIMARY_SSH_PRIVATE_KEY: ${{ secrets.PRIMARY_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "$VCL2_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          echo "$PRIMARY_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          
+
           # Debug: Check if key file is created and has content
           echo "SSH key file created:"
           ls -lh ~/.ssh/deploy_key
           echo "Key fingerprint (first/last lines only):"
           head -n 1 ~/.ssh/deploy_key
           tail -n 1 ~/.ssh/deploy_key
-          
-      - name: Test VCL2 connectivity
+
+      - name: Test primary server connectivity
         env:
-          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+          PRIMARY_HOST: ${{ vars.PRIMARY_HOST }}
         run: |
-          echo "Testing network connectivity to VCL2..."
-          ping -c 3 $VCL2_HOST || echo "Ping failed"
-          nc -zv $VCL2_HOST 22 || echo "SSH port not reachable"
+          echo "Testing network connectivity to primary server..."
+          ping -c 3 $PRIMARY_HOST || echo "Ping failed (may be blocked by firewall)"
+          nc -zv $PRIMARY_HOST 22 || echo "SSH port not reachable"
 
       - name: Backup current container
         env:
-          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
-          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+          PRIMARY_USER: ${{ vars.PRIMARY_USER }}
+          PRIMARY_HOST: ${{ vars.PRIMARY_HOST }}
         run: |
           echo "Creating backup of current container before deployment..."
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
-            cd $HOME/devops-project
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $PRIMARY_USER@$PRIMARY_HOST << ENDSSH
+            cd \$HOME/${{ env.PROJECT_DIR }}
             git pull origin main || true
             chmod +x scripts/backup-container.sh
             ./scripts/backup-container.sh
           ENDSSH
 
-      - name: Deploy to VCL 2
+      - name: Deploy to primary server
         env:
-          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
-          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
-          PROJECT_DIR: devops-project
+          PRIMARY_USER: ${{ vars.PRIMARY_USER }}
+          PRIMARY_HOST: ${{ vars.PRIMARY_HOST }}
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $PRIMARY_USER@$PRIMARY_HOST << ENDSSH
             set -e
-            
+
             echo "=== Navigating to project directory ==="
-            cd $HOME/devops-project
-            
+            cd \$HOME/${{ env.PROJECT_DIR }}
+
             echo "=== Cleaning untracked files ==="
             git clean -fd || true
-            
+
             echo "=== Stashing any local changes ==="
             git stash || true
-            
+
             echo "=== Pulling latest code from main ==="
             git pull origin main
-            
+
             echo "=== Applying stashed changes (if any) ==="
             git stash pop || true
-            
-            echo "=== Navigating to coffee_project ==="
-            cd coffee_project
-            
+
+            echo "=== Navigating to application directory ==="
+            cd ${{ env.APP_DIR }}
+
             echo "=== Stopping old containers ==="
             sudo docker-compose down || true
-            
+
             echo "=== Removing old containers and images ==="
             sudo docker-compose rm -f || true
-            
+
             echo "=== Building and starting new containers ==="
             sudo docker-compose up -d --build
-            
+
             echo "=== Waiting for containers to start ==="
             sleep 15
-            
+
             echo "=== Deployment complete! ==="
             sudo docker-compose ps
           ENDSSH
 
-      - name: Run health checks from Actions (VCL2)
-        id: vcl2_health
+      - name: Run health checks
+        id: health_check
         env:
-          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
-          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
+          PRIMARY_HOST: ${{ vars.PRIMARY_HOST }}
+          PRIMARY_USER: ${{ vars.PRIMARY_USER }}
         run: |
-          echo "Running health checks against VCL2 from Actions runner"
+          echo "Running health checks against primary server"
           echo "Waiting for services to be ready..."
           sleep 10
-          
+
           echo "== App HTTP check =="
-          # retry HTTP check up to 3 times (15s) against VCL2's external IP
-          # Check /coffees endpoint to verify API is working
+          # retry HTTP check up to 3 times (15s)
           for i in {1..3}; do
-            if curl -sS -f http://$VCL2_HOST:3000/coffees >/dev/null 2>&1; then
-              echo "✓ App is reachable at http://$VCL2_HOST:3000/coffees"
+            if curl -sS -f http://$PRIMARY_HOST:${{ env.APP_PORT }}${{ env.HEALTH_ENDPOINT }} >/dev/null 2>&1; then
+              echo "✓ App is reachable at http://$PRIMARY_HOST:${{ env.APP_PORT }}${{ env.HEALTH_ENDPOINT }}"
               APP_OK=true
               break
             fi
@@ -132,26 +195,26 @@ jobs:
 
           echo "== DB check =="
           # check postgres via SSH and pg_isready
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
-            if sudo docker exec coffee_db pg_isready -U postgres > /dev/null 2>&1; then
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $PRIMARY_USER@$PRIMARY_HOST << ENDSSH
+            if sudo docker exec ${{ env.DB_CONTAINER }} pg_isready -U postgres > /dev/null 2>&1; then
               echo "✓ Database is ready"
             else
               echo "✗ Database not ready" >&2
               exit 1
             fi
           ENDSSH
-          
+
           echo "== All health checks passed =="
 
       - name: Rollback on deployment failure
         if: failure()
         env:
-          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
-          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+          PRIMARY_USER: ${{ vars.PRIMARY_USER }}
+          PRIMARY_HOST: ${{ vars.PRIMARY_HOST }}
         run: |
           echo "=== HEALTH CHECKS FAILED - INITIATING ROLLBACK ==="
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
-            cd $HOME/devops-project
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $PRIMARY_USER@$PRIMARY_HOST << ENDSSH
+            cd \$HOME/${{ env.PROJECT_DIR }}
             chmod +x scripts/rollback-container.sh
             ./scripts/rollback-container.sh
           ENDSSH
@@ -160,58 +223,54 @@ jobs:
           echo "The application has been restored to the previous working version."
           exit 1
 
-      - name: Cleanup backup and sync to VCL3 (if VCL2 healthy)
+      - name: Cleanup backup and sync to backup server
         if: success()
         continue-on-error: true
         env:
-          VCL3_USER: ${{ secrets.VCL3_SSH_USER }}
-          VCL3_HOST: ${{ secrets.VCL3_SSH_HOST }}
-          VCL3_SSH_PRIVATE_KEY: ${{ secrets.VCL3_SSH_PRIVATE_KEY }}
-          VCL2_USER: ${{ secrets.VCL2_SSH_USER }}
-          VCL2_HOST: ${{ secrets.VCL2_SSH_HOST }}
+          BACKUP_USER: ${{ vars.BACKUP_USER }}
+          BACKUP_HOST: ${{ vars.BACKUP_HOST }}
+          BACKUP_SSH_PRIVATE_KEY: ${{ secrets.BACKUP_SSH_PRIVATE_KEY }}
+          PRIMARY_USER: ${{ vars.PRIMARY_USER }}
+          PRIMARY_HOST: ${{ vars.PRIMARY_HOST }}
         run: |
           echo "Deployment successful! Cleaning up backup..."
 
-          # Cleanup backup on VCL2
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $VCL2_USER@$VCL2_HOST << 'ENDSSH'
-            cd $HOME/devops-project
+          # Cleanup backup on primary server
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $PRIMARY_USER@$PRIMARY_HOST << ENDSSH
+            cd \$HOME/${{ env.PROJECT_DIR }}
             chmod +x scripts/cleanup-backup.sh
             ./scripts/cleanup-backup.sh
           ENDSSH
 
-          echo "Pulling latest code on VCL3 for backup"
-          
-          # Check if VCL3 secrets are configured
-          if [ -z "$VCL3_USER" ] || [ -z "$VCL3_HOST" ]; then
-            echo "⚠️  VCL3 not configured (missing VCL3_SSH_USER or VCL3_SSH_HOST secrets)"
-            echo "Skipping VCL3 backup step"
+          echo "Pulling latest code on backup server for failover readiness"
+
+          # Check if backup server secrets are configured
+          if [ -z "$BACKUP_USER" ] || [ -z "$BACKUP_HOST" ]; then
+            echo "::warning::Backup server not configured - skipping sync"
             exit 0
           fi
-          
-          # Repo URL is expanded on the runner so remote can clone using HTTPS
-          REPO_URL="https://github.ncsu.edu/vatsaldp/devops-project"
-          # Use separate SSH key for VCL3 if available, else reuse the same deploy_key secret
-          if [ -n "$VCL3_SSH_PRIVATE_KEY" ]; then
-            echo "Using VCL3 specific SSH key"
-            echo "$VCL3_SSH_PRIVATE_KEY" > ~/.ssh/vcl3_deploy_key
-            chmod 600 ~/.ssh/vcl3_deploy_key
-            SSH_KEY=~/.ssh/vcl3_deploy_key
+
+          # Use separate SSH key for backup server if available, else reuse primary key
+          if [ -n "$BACKUP_SSH_PRIVATE_KEY" ]; then
+            echo "Using backup server specific SSH key"
+            echo "$BACKUP_SSH_PRIVATE_KEY" > ~/.ssh/backup_deploy_key
+            chmod 600 ~/.ssh/backup_deploy_key
+            SSH_KEY=~/.ssh/backup_deploy_key
           else
-            echo "Reusing VCL2 SSH key for VCL3"
+            echo "Reusing primary SSH key for backup server"
             SSH_KEY=~/.ssh/deploy_key
           fi
 
           # Test connectivity first
-          if ! nc -zv -w 5 $VCL3_HOST 22 2>&1; then
-            echo "⚠️  Cannot reach VCL3 at $VCL3_HOST:22"
-            echo "Skipping VCL3 backup step"
+          if ! nc -zv -w 5 $BACKUP_HOST 22 2>&1; then
+            echo "::warning::Cannot reach backup server at $BACKUP_HOST:22 - skipping sync"
             exit 0
           fi
 
-          # Pull latest code on VCL3
-          echo "Pulling latest code on VCL3..."
+          # Pull latest code on backup server
+          echo "Pulling latest code on backup server..."
           set +e
-          
+
           # Use -T to disable pseudo-tty allocation and add timeouts
           timeout 30 ssh -T -i $SSH_KEY \
             -o StrictHostKeyChecking=no \
@@ -219,22 +278,23 @@ jobs:
             -o ServerAliveInterval=5 \
             -o ServerAliveCountMax=3 \
             -o BatchMode=yes \
-            $VCL3_USER@$VCL3_HOST \
-            'cd ~/devops-project && GIT_TERMINAL_PROMPT=0 git pull origin main 2>&1'
-          
+            $BACKUP_USER@$BACKUP_HOST \
+            "cd ~/${{ env.PROJECT_DIR }} && GIT_TERMINAL_PROMPT=0 git pull origin main 2>&1"
+
           EXIT_CODE=$?
           if [ $EXIT_CODE -eq 0 ]; then
-            echo "✓ VCL3 backup completed successfully"
+            echo "✓ Backup server sync completed successfully"
           elif [ $EXIT_CODE -eq 124 ]; then
-            echo "⚠️  VCL3 backup timed out after 30 seconds"
+            echo "::warning::Backup server sync timed out after 30 seconds"
           else
-            echo "⚠️  VCL3 backup failed (exit code: $EXIT_CODE)"
+            echo "::warning::Backup server sync failed (exit code: $EXIT_CODE)"
           fi
-          
-          set -e
-          rm -f ~/.ssh/vcl3_deploy_key || true
 
-      - name: Cleanup SSH key
+          set -e
+          rm -f ~/.ssh/backup_deploy_key || true
+
+      - name: Cleanup SSH keys
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
+          rm -f ~/.ssh/backup_deploy_key

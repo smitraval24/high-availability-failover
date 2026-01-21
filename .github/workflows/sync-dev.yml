@@ -3,8 +3,11 @@
 # =============================================================================
 # Triggered: When a PR from dev to main is merged
 # Purpose: Back-merge main to dev to keep branches in sync
-# Runner: Self-hosted runner on VCL1
+# Runner: Configurable - supports both GitHub-hosted and self-hosted runners
 # Note: Prevents divergence between dev and main branches
+#
+# Optional Variables:
+#   - RUNNER: Runner label (default: ubuntu-latest, or "self-hosted, linux, x64")
 # =============================================================================
 
 name: Sync Dev Branch
@@ -19,8 +22,8 @@ jobs:
   sync-dev:
     name: Back-merge main to dev
     if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'dev'
-    runs-on: [self-hosted, linux, x64]
-    
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

@@ -1,192 +1,272 @@
-# CSC 519 - DevOps Project
+# High-Availability Failover System
 
-This is our Coffee Project for the DevOps course. We built a full CI/CD pipeline with high availability and automatic failover between servers.
+A production-ready CI/CD pipeline with high availability and automatic failover capabilities. Deploy to any infrastructure - AWS, Azure, local servers, or any cloud provider.
 
-## Our Setup
+## Features
 
-We're using 3 VCL machines:
+- **Automatic Failover**: Primary server goes down? Backup takes over automatically
+- **Database Replication**: Continuous sync between primary and backup servers
+- **Safe Deployments**: Automatic backup before deploy, rollback on failure
+- **CI/CD Pipeline**: Automated testing and deployment via GitHub Actions
+- **Cloud Agnostic**: Works on AWS, Azure, GCP, VPS, or bare metal servers
 
-- **VCL1** (152.7.178.184) - runs nginx as a load balancer, also hosts our GitHub Actions runner
-- **VCL2** (152.7.178.106) - main app server, this is where everything runs normally
-- **VCL3** (152.7.178.91) - backup server, kicks in if VCL2 goes down
+## Architecture
 
-## What We Built
+```
+                    Users
+                      │
+              ┌───────┴───────┐
+              │               │
+         [Load Balancer]  [GitHub Actions]
+              │            CI/CD Pipeline
+              │
+       ┌──────┴──────┐
+       │             │
+   [PRIMARY]    [BACKUP]
+   App + DB     Standby
+       │             │
+       └─────────────┘
+         DB Replication
+```
 
-### CI/CD Pipeline
+## Quick Start
 
-All our workflows live in `.github/workflows/`. Here's what happens:
+### 1. Clone and Configure
 
-- **Pull Requests** - runs ESLint and Jest tests automatically (`pr-test.yml`)
-- **Merging to main** - deploys to VCL2 via SSH (`deploy.yml`)
-- **After merge** - syncs changes back to dev branch (`sync-dev.yml`)
+```bash
+git clone https://github.com/smitraval24/high-availability-failover.git
+cd high-availability-failover
 
-### Backup and Rollback
+# Copy the example configuration
+cp config/config.env.example config/config.env
 
-We didn't want to lose stuff if a deploy goes wrong, so:
+# Edit with your server details
+nano config/config.env
+```
 
-- Before every deploy, we save a timestamped backup
-- If the deploy fails, it automatically rolls back to the previous version
-- All backups are stored in `~/backups/` on VCL2 if we ever need to restore manually
+### 2. Configure Your Servers
 
-### Database Replication
+Edit `config/config.env` with your infrastructure:
 
-The database on VCL2 gets synced to VCL3 every 30 seconds using a systemd timer. Basically it does a `pg_dump`, SCPs it over, and stores it in `/tmp/db-backup/`. The script is at `scripts/replicate-db.sh`.
+```bash
+# Required: Primary server (where app runs normally)
+PRIMARY_HOST=your-primary-server-ip
+PRIMARY_USER=your-ssh-username
 
-### Failover
+# Required: Backup server (takes over if primary fails)
+BACKUP_HOST=your-backup-server-ip
+BACKUP_USER=your-ssh-username
 
-This was tricky to get right. VCL3 runs a health monitor (`monitor-vcl2-health.sh`) that pings VCL2 every 10 seconds. If it fails 3 times in a row (~30 sec), VCL3 automatically starts up and takes over.
+# Optional: Load balancer
+LB_HOST=your-loadbalancer-ip
+LB_USER=your-ssh-username
+```
 
-When VCL2 comes back online, it syncs the database from VCL3 (in case any orders came in during downtime) and then VCL3 goes back to standby mode. The monitor logs everything to `/tmp/monitor.log`.
+### 3. Bootstrap Server Connectivity
 
-### Load Balancer
+Run from your local machine to set up SSH keys between servers:
 
-VCL1 runs nginx as a reverse proxy. It normally sends all traffic to VCL2, but if VCL2 fails health checks, it switches to VCL3 automatically. Config is in `load_balancer/nginx-load-balancer.conf`.
-
-## Ansible Stuff
-
-We used Ansible to set up all the servers so we don't have to SSH in and configure things manually every time. Everything's in the `ansible/` folder.
-
-Main playbooks:
-- `site.yml` - runs everything
-- `0-setup-ssh-keys.yml` - sets up SSH keys between servers
-- `0-initial-setup.yml` - installs Docker, Node, etc.
-- `deploy.yml` - deploys the app to VCL2
-- `deploy-vcl3-standby.yml` - gets VCL3 ready as backup
-- `setup-vcl1-loadbalancer.yml` - configures nginx on VCL1
-- `setup-vcl3-monitor.yml` - installs the health monitor on VCL3
-- `setup-replication.yml` - sets up the DB replication timer
-- `security-hardening.yml` and `setup-firewall.yml` - security stuff
-
-To run everything:
-### **Step 1: Local Setup (On Your Laptop)**
-
-First you need to setup the ip address for the vcl machines.
-
-1.  **Open `ansible/inventory.yml`** and update the **IP addresses** and **ansible_user** for all 3 machines:
-    ```yaml
-    all:
-      hosts:
-        vcl1:
-          ansible_host: 152.7.176.221  # <--- CHANGE THIS IP
-          ansible_user: your_unity_id  # <--- CHANGE THIS USER
-          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
-
-        vcl2:
-          ansible_host: 152.7.177.180  # <--- CHANGE THIS IP
-          ansible_user: your_unity_id  # <--- CHANGE THIS USER
-          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
-
-        vcl3:
-          ansible_host: 152.7.178.104  # <--- CHANGE THIS IP
-          ansible_user: your_unity_id  # <--- CHANGE THIS USER
-          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
-    ```
-
-2.  **Open `ansible/inventory-password.yml`** and do the exact same updates:
-    ```yaml
-    all:
-      hosts:
-        vcl1:
-          ansible_host: 152.7.176.221  # <--- CHANGE THIS IP
-          ansible_user: your_unity_id  # <--- CHANGE THIS USER
-          # ... keep the rest as is ...
-        
-        vcl2:
-          ansible_host: 152.7.177.180  # <--- CHANGE THIS IP
-          ansible_user: your_unity_id  # <--- CHANGE THIS USER
-
-        vcl3:
-          ansible_host: 152.7.178.104  # <--- CHANGE THIS IP
-          ansible_user: your_unity_id  # <--- CHANGE THIS USER
-    ```
-
-3.  **Save and Push Changes to GitHub:**
-    ```bash
-    git add ansible/inventory.yml ansible/inventory-password.yml
-    git commit -m "Update VCL IPs and User"
-    git push
-    ```
-
----
-
-### **Step 2: Run this script in Local**
-To congigure the communication between all the vcl machines 
-You can download sshpass in your pc so when you run the script it only asks the password one time otherwise you need to enter password multiple times.
 ```bash
 cd scripts
 bash local-bootstrap.sh
 ```
 
-### **Step 3: Server Setup (On VCL 2)**
+### 4. Run Ansible Setup
 
-We use VCL 2 as the "Control Node" to run Ansible.
+SSH into your primary server and run the setup:
 
-1.  **SSH into VCL 2:**
-    *(Replace `your_unity_id` and the IP with your VCL 2 info)*
-    ```bash
-    ssh your_unity_id@152.7.177.180
-    ```
+```bash
+ssh your-user@your-primary-ip
+cd high-availability-failover/ansible
+bash SETUP.sh
+```
 
-2.  **Clone the Repository:**
-    ```bash
-    git clone https://github.ncsu.edu/vpatel29/devops-project.git
-    cd devops-project
-    ```
+### 5. Configure GitHub Actions
 
-3.  **Setup Git Credentials (Important!):**
-    This set will save the creds. to the cache so anible can access it otherwise it would be stuck.
-    ```bash
-    # Enable creds caching for 1 hour
-    git config --global credential.helper cache
-    git config --global credential.helper 'cache --timeout=3600'
+In your GitHub repository settings, add:
 
-    # Run a pull to trigger login prompt and save it
-    git pull
-    # (Enter your github creds)
+**Secrets** (Settings → Secrets and variables → Actions → Secrets):
+- `PRIMARY_SSH_PRIVATE_KEY`: SSH private key for primary server
+- `BACKUP_SSH_PRIVATE_KEY`: SSH private key for backup server
 
-    # Run pull again to verify it works WITHOUT asking for password
-    git pull
-    ```
+**Variables** (Settings → Secrets and variables → Actions → Variables):
+- `PRIMARY_HOST`: IP/hostname of primary server
+- `PRIMARY_USER`: SSH username for primary server
+- `BACKUP_HOST`: IP/hostname of backup server
+- `BACKUP_USER`: SSH username for backup server
 
-4.  **Install Ansible:**
-    ```bash
-    sudo apt-get update
-    sudo apt-get install -y ansible sshpass
-    ```
+**Optional Variables:**
+- `RUNNER`: Set to `self-hosted, linux, x64` for self-hosted runner (defaults to `ubuntu-latest`)
+- `PROJECT_DIR`: Project directory name (default: `high-availability-failover`)
+- `APP_PORT`: Application port (default: `3000`)
 
-5.  **Run the Setup Script:**
-    This script will handle SSH keys, firewalls, Docker, and the app deployment automatically.
-    ```bash
-    cd ansible
-    bash SETUP.sh
-    ```
-    *   **Note:** It will ask for vcl password please enter the same.
+## Directory Structure
 
----
+```
+high-availability-failover/
+├── config/
+│   ├── config.env.example    # Template - copy to config.env
+│   └── defaults.env          # Default values
+├── coffee_project/           # Sample Node.js application
+│   ├── app.js               # Express API
+│   ├── docker-compose.yml   # Container orchestration
+│   └── test/                # Test suite
+├── ansible/                  # Infrastructure automation
+│   ├── inventory.yml        # Server definitions
+│   ├── site.yml             # Main playbook
+│   └── *.yml                # Individual playbooks
+├── scripts/                  # Operational scripts
+│   ├── local-bootstrap.sh   # Initial SSH setup
+│   ├── monitor-primary-health.sh  # Failover monitor
+│   ├── replicate-db.sh      # Database replication
+│   ├── backup-container.sh  # Pre-deploy backup
+│   └── rollback-container.sh # Rollback on failure
+├── load_balancer/           # Nginx configuration
+└── .github/workflows/       # CI/CD pipelines
+    ├── deploy.yml           # Production deployment
+    ├── pr-test.yml          # PR testing
+    └── sync-dev.yml         # Branch sync
+```
 
-### **Step 3: Verify It Works**
+## How It Works
 
-Once the script finishes successfully:
+### CI/CD Pipeline
 
-1.  **Check the Website (Load Balancer):**
-    ```bash
-    curl -v http://152.7.176.221
-    ```
-    *(Replace with your VCL 1 IP. You should see the HTML for the Coffee App)*
+1. **Pull Request**: Runs linting and tests automatically
+2. **Merge to main**: Triggers deployment workflow
+3. **Deployment**:
+   - Creates backup of current container
+   - Pulls latest code
+   - Builds and starts new containers
+   - Runs health checks
+   - Rolls back automatically if health checks fail
+4. **Post-deploy**: Syncs code to backup server
 
-## GitHub Secrets
+### Failover System
 
-You'll need these secrets set up in the repo:
+1. **Monitor** (runs on backup server):
+   - Pings primary server every 30 seconds
+   - After 3 consecutive failures, triggers failover
 
-- `VCL2_SSH_PRIVATE_KEY`, `VCL2_SSH_HOST`, `VCL2_SSH_USER` - for deploying to VCL2
-- `VCL3_SSH_PRIVATE_KEY`, `VCL3_SSH_HOST`, `VCL3_SSH_USER` - for syncing to VCL3
+2. **Failover**:
+   - Starts application on backup server
+   - Restores database from latest replication
+   - Traffic automatically routes to backup
 
-## Random Note
+3. **Recovery**:
+   - When primary recovers, syncs database back
+   - Backup returns to standby mode
 
-There's some extra scripts and test files lying around that we used while debugging. They're not really part of the main project, just stuff we tried while figuring things out. Sorry if it's a bit messy!
+### Database Replication
 
-## Github Accounts of Collaborators
+- Runs every 30 minutes (configurable)
+- `pg_dump` on primary → SCP → restore on backup
+- Ensures minimal data loss during failover
 
- Smit Sunilkumar Raval: sraval (ncsu account), smitraval24 (personal account)
- 
- Vatsalkumar Patel: vpatel29 (ncsu account)
+## Configuration Reference
+
+### config/config.env
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PRIMARY_HOST` | Yes | - | Primary server IP/hostname |
+| `PRIMARY_USER` | Yes | - | SSH username for primary |
+| `BACKUP_HOST` | Yes | - | Backup server IP/hostname |
+| `BACKUP_USER` | Yes | - | SSH username for backup |
+| `LB_HOST` | No | - | Load balancer IP (optional) |
+| `APP_NAME` | No | `coffee` | Application name |
+| `APP_PORT` | No | `3000` | Application port |
+| `DB_NAME` | No | `coffee_dev` | Database name |
+| `HEALTH_CHECK_INTERVAL` | No | `30` | Seconds between health checks |
+| `FAIL_THRESHOLD` | No | `3` | Failures before failover |
+| `DOMAIN_NAME` | No | - | Domain name (optional) |
+
+### GitHub Actions Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PRIMARY_HOST` | Yes | - | Primary server IP |
+| `PRIMARY_USER` | Yes | - | Primary SSH user |
+| `BACKUP_HOST` | Yes | - | Backup server IP |
+| `BACKUP_USER` | Yes | - | Backup SSH user |
+| `RUNNER` | No | `ubuntu-latest` | Runner type |
+| `PROJECT_DIR` | No | `high-availability-failover` | Project directory |
+| `APP_PORT` | No | `3000` | Application port |
+
+## Deployment Options
+
+### Option 1: Two Servers (Recommended Minimum)
+
+- Primary server: Runs application + database
+- Backup server: Standby for failover
+
+### Option 2: Three Servers (Full Setup)
+
+- Load Balancer: Nginx reverse proxy
+- Primary server: Main application
+- Backup server: Failover standby
+
+### Option 3: Cloud Providers
+
+Works with any cloud that supports:
+- Linux VMs with SSH access
+- Docker and Docker Compose
+- Outbound internet (for GitHub Actions)
+
+**Tested on:**
+- AWS EC2
+- Azure VMs
+- Google Cloud Compute
+- DigitalOcean Droplets
+- Linode
+- VCL (Virtual Computing Lab)
+
+## Customizing for Your Application
+
+1. Replace `coffee_project/` with your application
+2. Update `docker-compose.yml` for your stack
+3. Modify health check endpoint in `config/config.env`:
+   ```bash
+   HEALTH_ENDPOINT=/your-health-endpoint
+   ```
+4. Update container names if different:
+   ```bash
+   APP_CONTAINER=your_app
+   DB_CONTAINER=your_db
+   ```
+
+## Troubleshooting
+
+### Deployment Fails
+
+1. Check GitHub Actions logs
+2. Verify SSH keys are correctly configured
+3. Ensure servers are reachable from GitHub runner
+
+### Failover Not Working
+
+1. Check monitor logs: `journalctl -u monitor-primary -f`
+2. Verify backup server can reach primary
+3. Check database replication status
+
+### Health Checks Failing
+
+1. Verify application is running: `docker-compose ps`
+2. Test endpoint manually: `curl http://localhost:3000/coffees`
+3. Check application logs: `docker-compose logs app`
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests: `cd coffee_project && npm test`
+5. Submit a pull request
+
+## License
+
+ISC License
+
+## Credits
+
+Originally developed as a DevOps course project demonstrating CI/CD, high availability, and infrastructure automation.
